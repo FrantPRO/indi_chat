@@ -145,51 +145,84 @@ func (c *Client) handleChatMessage(msg *protocol.Message) {
 	// Verify message signature if present
 	if len(msg.Signature) > 0 {
 		if peerKey, exists := c.peers[msg.From]; exists && peerKey.PublicKey != nil {
+			// For encrypted messages, verify signature against original content after decryption
+			// For now, verify against received content (will be corrected after decryption)
 			messageData := []byte(msg.Content)
 			if err := crypto.VerifySignature(messageData, msg.Signature, peerKey.PublicKey); err == nil {
 				signatureValid = true
 			} else {
 				log.Printf("Invalid signature from %s: %v", msg.From, err)
 			}
+		} else {
+			log.Printf("Cannot verify signature from %s: No public key available", msg.From)
 		}
 	}
 	
 	if msg.Encrypted {
 		if msg.ForwardSecure {
-			// Use session key for forward secrecy
+			// Use session key for forward secrecy (ECDH)
 			if session, exists := c.sessions[msg.SessionID]; exists {
 				encryptedData, err := base64.StdEncoding.DecodeString(msg.Content)
 				if err != nil {
-					log.Printf("Error decoding forward secure message: %v", err)
+					fmt.Printf("❌ Error decoding forward secure message from %s: %v\n", msg.From, err)
 					return
 				}
 				
 				decrypted, err := crypto.DecryptWithSessionKey(encryptedData, session.SessionKey)
 				if err != nil {
-					log.Printf("Error decrypting forward secure message from %s: %v", msg.From, err)
+					fmt.Printf("❌ Error decrypting forward secure message from %s: %v\n", msg.From, err)
+					fmt.Printf("   Session may have expired or been corrupted\n")
 					return
 				}
 				content = decrypted
 				encryptedIcon = "🔐 "
+				
+				// Re-verify signature against decrypted content
+				if len(msg.Signature) > 0 {
+					if peerKey, exists := c.peers[msg.From]; exists && peerKey.PublicKey != nil {
+						messageData := []byte(content)
+						if err := crypto.VerifySignature(messageData, msg.Signature, peerKey.PublicKey); err == nil {
+							signatureValid = true
+						} else {
+							signatureValid = false
+							log.Printf("Invalid signature on decrypted content from %s: %v", msg.From, err)
+						}
+					}
+				}
 			} else {
-				log.Printf("No session key for forward secure message from %s", msg.From)
+				fmt.Printf("❌ No session key for forward secure message from %s (SessionID: %s)\n", msg.From, msg.SessionID)
+				fmt.Printf("   Message cannot be decrypted - session may have expired\n")
 				return
 			}
 		} else {
-			// Traditional RSA encryption
+			// Traditional RSA+AES encryption
 			encryptedData, err := base64.StdEncoding.DecodeString(msg.Content)
 			if err != nil {
-				log.Printf("Error decoding encrypted message: %v", err)
+				fmt.Printf("❌ Error decoding encrypted message from %s: %v\n", msg.From, err)
 				return
 			}
 			
 			decrypted, err := c.keyPair.DecryptMessage(encryptedData)
 			if err != nil {
-				log.Printf("Error decrypting message from %s: %v", msg.From, err)
+				fmt.Printf("❌ Error decrypting message from %s: %v\n", msg.From, err)
+				fmt.Printf("   This could indicate key mismatch or message corruption\n")
 				return
 			}
 			content = decrypted
 			encryptedIcon = "🔒 "
+			
+			// Re-verify signature against decrypted content
+			if len(msg.Signature) > 0 {
+				if peerKey, exists := c.peers[msg.From]; exists && peerKey.PublicKey != nil {
+					messageData := []byte(content)
+					if err := crypto.VerifySignature(messageData, msg.Signature, peerKey.PublicKey); err == nil {
+						signatureValid = true
+					} else {
+						signatureValid = false
+						log.Printf("Invalid signature on decrypted content from %s: %v", msg.From, err)
+					}
+				}
+			}
 		}
 	}
 
@@ -201,6 +234,9 @@ func (c *Client) handleChatMessage(msg *protocol.Message) {
 		} else {
 			signatureIcon = "❌ "
 		}
+	} else {
+		// Warn about unsigned messages
+		signatureIcon = "⚠️ "
 	}
 
 	timestamp := msg.Timestamp.Format("15:04:05")
@@ -310,13 +346,13 @@ func (c *Client) handleCommand(command string) {
 			fmt.Println("Usage: /pm <user> <message>")
 			return
 		}
-		c.sendChatMessage(parts[2], parts[1], false)
+		c.sendSecureMessage(parts[2], parts[1], false)
 	case "/pms":
 		if len(parts) < 3 {
 			fmt.Println("Usage: /pms <user> <message>")
 			return
 		}
-		c.sendForwardSecureMessage(parts[2], parts[1])
+		c.sendSecureMessage(parts[2], parts[1], true)
 	case "/trust":
 		if len(parts) < 2 {
 			fmt.Println("Usage: /trust <user>")
@@ -359,44 +395,57 @@ func (c *Client) sendChatMessage(content, to string, forwardSecure bool) {
 	}
 	msg.Signature = signature
 	
-	// Encrypt message if we have recipient's key
+	// Encrypt message if sending to specific recipient
 	if to != "" {
-		if peerKey, exists := c.peers[to]; exists && peerKey.PublicKey != nil {
-			if forwardSecure {
-				// Use forward secure encryption
-				if session, exists := c.sessions[to]; exists && time.Now().Before(session.Expiry) {
-					encryptedData, err := crypto.EncryptWithSessionKey(content, session.SessionKey)
-					if err != nil {
-						log.Printf("Error encrypting with session key: %v", err)
-						return
-					}
-					msg.Content = base64.StdEncoding.EncodeToString(encryptedData)
-					msg.Encrypted = true
-					msg.ForwardSecure = true
-					msg.SessionID = session.SessionID
-					fmt.Printf("[private to %s]: 🔐 %s\n", to, content)
-				} else {
-					fmt.Printf("No valid session with %s. Establishing new session...\n", to)
-					c.initiateEphemeralKeyExchange(to)
-					return
-				}
-			} else {
-				// Traditional RSA encryption
-				encryptedData, err := crypto.EncryptMessage(content, peerKey.PublicKey)
+		// Check if we have the recipient's key
+		peerKey, keyExists := c.peers[to]
+		if !keyExists || peerKey.PublicKey == nil {
+			fmt.Printf("❌ Cannot send to %s: No public key available\n", to)
+			fmt.Printf("   Wait for key exchange or check if user is online\n")
+			return
+		}
+
+		// Check if key is trusted (for enhanced security)
+		if !peerKey.Trusted {
+			fmt.Printf("⚠️  Warning: %s's key is not trusted (fingerprint: %s)\n", to, peerKey.Fingerprint)
+			fmt.Printf("   Use '/trust %s' to verify and trust this key\n", to)
+			fmt.Printf("   Proceeding with encryption anyway...\n")
+		}
+
+		if forwardSecure {
+			// Use forward secure encryption (ECDH)
+			if session, exists := c.sessions[to]; exists && time.Now().Before(session.Expiry) {
+				encryptedData, err := crypto.EncryptWithSessionKey(content, session.SessionKey)
 				if err != nil {
-					log.Printf("Error encrypting message: %v", err)
+					fmt.Printf("❌ Error encrypting forward secure message: %v\n", err)
 					return
 				}
 				msg.Content = base64.StdEncoding.EncodeToString(encryptedData)
 				msg.Encrypted = true
-				fmt.Printf("[private to %s]: 🔒 %s\n", to, content)
+				msg.ForwardSecure = true
+				msg.SessionID = session.SessionID
+				fmt.Printf("[private to %s]: 🔐 %s\n", to, content)
+			} else {
+				fmt.Printf("🔐 No valid session with %s. Establishing new session...\n", to)
+				c.initiateEphemeralKeyExchange(to)
+				return
 			}
 		} else {
-			fmt.Printf("[private to %s]: ⚠️  %s (unencrypted - no key)\n", to, content)
+			// Traditional RSA+AES encryption
+			encryptedData, err := crypto.EncryptMessage(content, peerKey.PublicKey)
+			if err != nil {
+				fmt.Printf("❌ Error encrypting message: %v\n", err)
+				fmt.Printf("   This could indicate a key corruption or crypto error\n")
+				return
+			}
+			msg.Content = base64.StdEncoding.EncodeToString(encryptedData)
+			msg.Encrypted = true
+			fmt.Printf("[private to %s]: 🔒 %s\n", to, content)
 		}
 	} else {
 		// For broadcast messages, don't encrypt (would need to encrypt for each user separately)
-		fmt.Printf("[broadcast]: %s\n", content)
+		fmt.Printf("[broadcast]: ⚠️  %s (unencrypted)\n", content)
+		fmt.Printf("   Note: Broadcast messages are not encrypted for security reasons\n")
 	}
 
 	if err := c.sendMessage(msg); err != nil {
@@ -609,4 +658,38 @@ func (c *Client) showLogs() {
 		}
 		fmt.Printf("[%s] %s %s %s: %s\n", timestamp, log.From, direction, log.To, log.Content)
 	}
+}
+
+// Helper function to validate recipient for secure messaging
+func (c *Client) validateRecipient(username string) error {
+	if username == "" {
+		return fmt.Errorf("recipient username cannot be empty")
+	}
+	
+	if username == c.name {
+		return fmt.Errorf("cannot send message to yourself")
+	}
+
+	peerKey, exists := c.peers[username]
+	if !exists {
+		return fmt.Errorf("no public key available for %s - user may be offline or key exchange incomplete", username)
+	}
+
+	if peerKey.PublicKey == nil {
+		return fmt.Errorf("invalid public key for %s", username)
+	}
+
+	return nil
+}
+
+// Enhanced send message with full validation
+func (c *Client) sendSecureMessage(content, to string, useForwardSecrecy bool) {
+	// Validate recipient
+	if err := c.validateRecipient(to); err != nil {
+		fmt.Printf("❌ Cannot send message: %v\n", err)
+		return
+	}
+
+	// Send the message using existing logic
+	c.sendChatMessage(content, to, useForwardSecrecy)
 }

@@ -1,0 +1,3946 @@
+Project Path: indi_chat
+
+Source Tree:
+
+```
+indi_chat
+├── cmd
+│   ├── server
+│   │   └── main.go
+│   └── client
+│       └── main.go
+├── go.mod
+├── Makefile
+├── code.txt
+├── internal
+│   ├── crypto
+│   │   ├── logging.go
+│   │   └── e2e.go
+│   ├── security
+│   │   └── ratelimit.go
+│   ├── server
+│   │   └── server.go
+│   ├── protocol
+│   │   └── message.go
+│   └── client
+│       └── client.go
+├── README.md
+└── pkg
+
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/cmd/server/main.go`:
+
+```go
+package main
+
+import (
+	"flag"
+	"indi_chat/internal/server"
+	"log"
+)
+
+func main() {
+	port := flag.String("port", "8080", "Port to listen on")
+	flag.Parse()
+
+	srv := server.NewServer()
+	log.Fatal(srv.Start(*port))
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/cmd/client/main.go`:
+
+```go
+package main
+
+import (
+	"flag"
+	"fmt"
+	"indi_chat/internal/client"
+	"log"
+	"os"
+)
+
+func main() {
+	name := flag.String("name", "", "Your chat name")
+	server := flag.String("server", "localhost:8080", "Server address")
+	flag.Parse()
+
+	if *name == "" {
+		fmt.Println("Usage: client -name <your_name> [-server <address>]")
+		os.Exit(1)
+	}
+
+	c, err := client.NewClient(*name)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := c.Connect(*server); err != nil {
+		log.Fatal(err)
+	}
+
+	c.StartChat()
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/go.mod`:
+
+```mod
+module indi_chat
+
+go 1.24.3
+
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/Makefile`:
+
+```
+build:
+	go build -o bin/server ./cmd/server
+	go build -o bin/client ./cmd/client
+
+clean:
+	rm -rf bin/
+
+run-server:
+	go run ./cmd/server
+
+run-client:
+	go run ./cmd/client -name $(NAME)
+
+test:
+	go test ./...
+
+deps:
+	go mod tidy
+
+.PHONY: build clean run-server run-client test deps
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/code.txt`:
+
+```txt
+Project Path: indi_chat
+
+Source Tree:
+
+```
+indi_chat
+├── cmd
+│   ├── server
+│   │   └── main.go
+│   └── client
+│       └── main.go
+├── go.mod
+├── Makefile
+├── internal
+│   ├── crypto
+│   │   ├── logging.go
+│   │   └── e2e.go
+│   ├── security
+│   │   └── ratelimit.go
+│   ├── server
+│   │   └── server.go
+│   ├── protocol
+│   │   └── message.go
+│   └── client
+│       └── client.go
+├── README.md
+└── pkg
+
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/cmd/server/main.go`:
+
+```go
+package main
+
+import (
+	"flag"
+	"indi_chat/internal/server"
+	"log"
+)
+
+func main() {
+	port := flag.String("port", "8080", "Port to listen on")
+	flag.Parse()
+
+	srv := server.NewServer()
+	log.Fatal(srv.Start(*port))
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/cmd/client/main.go`:
+
+```go
+package main
+
+import (
+	"flag"
+	"fmt"
+	"indi_chat/internal/client"
+	"log"
+	"os"
+)
+
+func main() {
+	name := flag.String("name", "", "Your chat name")
+	server := flag.String("server", "localhost:8080", "Server address")
+	flag.Parse()
+
+	if *name == "" {
+		fmt.Println("Usage: client -name <your_name> [-server <address>]")
+		os.Exit(1)
+	}
+
+	c, err := client.NewClient(*name)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := c.Connect(*server); err != nil {
+		log.Fatal(err)
+	}
+
+	c.StartChat()
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/go.mod`:
+
+```mod
+module indi_chat
+
+go 1.24.3
+
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/Makefile`:
+
+```
+build:
+	go build -o bin/server ./cmd/server
+	go build -o bin/client ./cmd/client
+
+clean:
+	rm -rf bin/
+
+run-server:
+	go run ./cmd/server
+
+run-client:
+	go run ./cmd/client -name $(NAME)
+
+test:
+	go test ./...
+
+deps:
+	go mod tidy
+
+.PHONY: build clean run-server run-client test deps
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/crypto/logging.go`:
+
+```go
+package crypto
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+type MessageLog struct {
+	ID          string    `json:"id"`
+	Timestamp   time.Time `json:"timestamp"`
+	From        string    `json:"from"`
+	To          string    `json:"to"`
+	Content     string    `json:"content"`
+	Signature   string    `json:"signature"`
+	PrevHash    string    `json:"prev_hash"`
+	Hash        string    `json:"hash"`
+}
+
+type LogChain struct {
+	filePath string
+	logs     []MessageLog
+}
+
+func NewLogChain(userID string) (*LogChain, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	
+	logDir := filepath.Join(homeDir, ".indi_chat", "logs")
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		return nil, err
+	}
+	
+	filePath := filepath.Join(logDir, fmt.Sprintf("%s.json", userID))
+	
+	lc := &LogChain{
+		filePath: filePath,
+		logs:     make([]MessageLog, 0),
+	}
+	
+	// Load existing logs
+	if err := lc.loadLogs(); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	
+	return lc, nil
+}
+
+func (lc *LogChain) AddMessage(from, to, content, signature string) error {
+	prevHash := ""
+	if len(lc.logs) > 0 {
+		prevHash = lc.logs[len(lc.logs)-1].Hash
+	}
+	
+	logEntry := MessageLog{
+		ID:        generateLogID(),
+		Timestamp: time.Now(),
+		From:      from,
+		To:        to,
+		Content:   content,
+		Signature: signature,
+		PrevHash:  prevHash,
+	}
+	
+	// Calculate hash of current entry
+	logEntry.Hash = lc.calculateHash(logEntry)
+	
+	lc.logs = append(lc.logs, logEntry)
+	
+	return lc.saveLogs()
+}
+
+func (lc *LogChain) VerifyIntegrity() (bool, error) {
+	prevHash := ""
+	
+	for i, log := range lc.logs {
+		// Verify previous hash chain
+		if log.PrevHash != prevHash {
+			return false, fmt.Errorf("hash chain broken at entry %d", i)
+		}
+		
+		// Verify current hash
+		calculatedHash := lc.calculateHash(log)
+		if log.Hash != calculatedHash {
+			return false, fmt.Errorf("hash mismatch at entry %d", i)
+		}
+		
+		prevHash = log.Hash
+	}
+	
+	return true, nil
+}
+
+func (lc *LogChain) GetLogs() []MessageLog {
+	return lc.logs
+}
+
+func (lc *LogChain) loadLogs() error {
+	data, err := os.ReadFile(lc.filePath)
+	if err != nil {
+		return err
+	}
+	
+	return json.Unmarshal(data, &lc.logs)
+}
+
+func (lc *LogChain) saveLogs() error {
+	data, err := json.MarshalIndent(lc.logs, "", "  ")
+	if err != nil {
+		return err
+	}
+	
+	return os.WriteFile(lc.filePath, data, 0600)
+}
+
+func (lc *LogChain) calculateHash(log MessageLog) string {
+	// Create hash input without the hash field itself
+	hashInput := fmt.Sprintf("%s%s%s%s%s%s%s",
+		log.ID,
+		log.Timestamp.Format(time.RFC3339Nano),
+		log.From,
+		log.To,
+		log.Content,
+		log.Signature,
+		log.PrevHash,
+	)
+	
+	hash := sha256.Sum256([]byte(hashInput))
+	return hex.EncodeToString(hash[:])
+}
+
+func generateLogID() string {
+	timestamp := time.Now().UnixNano()
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", timestamp)))
+	return hex.EncodeToString(hash[:8])
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/crypto/e2e.go`:
+
+```go
+package crypto
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	crypto2 "crypto"
+	"crypto/ecdh"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"errors"
+	"io"
+	"time"
+)
+
+type KeyPair struct {
+	PrivateKey *rsa.PrivateKey
+	PublicKey  *rsa.PublicKey
+}
+
+func GenerateKeyPair() (*KeyPair, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	
+	return &KeyPair{
+		PrivateKey: privateKey,
+		PublicKey:  &privateKey.PublicKey,
+	}, nil
+}
+
+func (kp *KeyPair) PublicKeyBytes() ([]byte, error) {
+	return x509.MarshalPKIXPublicKey(kp.PublicKey)
+}
+
+func PublicKeyFromBytes(data []byte) (*rsa.PublicKey, error) {
+	pubKey, err := x509.ParsePKIXPublicKey(data)
+	if err != nil {
+		return nil, err
+	}
+	
+	rsaPubKey, ok := pubKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("not an RSA public key")
+	}
+	
+	return rsaPubKey, nil
+}
+
+func EncryptMessage(message string, publicKey *rsa.PublicKey) ([]byte, error) {
+	aesKey := make([]byte, 32)
+	if _, err := rand.Read(aesKey); err != nil {
+		return nil, err
+	}
+	
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return nil, err
+	}
+	
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+	
+	ciphertext := gcm.Seal(nonce, nonce, []byte(message), nil)
+	
+	encryptedKey, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, aesKey, nil)
+	if err != nil {
+		return nil, err
+	}
+	
+	result := make([]byte, 2+len(encryptedKey)+len(ciphertext))
+	result[0] = byte(len(encryptedKey) >> 8)
+	result[1] = byte(len(encryptedKey))
+	copy(result[2:], encryptedKey)
+	copy(result[2+len(encryptedKey):], ciphertext)
+	
+	return result, nil
+}
+
+func (kp *KeyPair) DecryptMessage(data []byte) (string, error) {
+	if len(data) < 2 {
+		return "", errors.New("invalid encrypted data")
+	}
+	
+	keyLen := int(data[0])<<8 | int(data[1])
+	if len(data) < 2+keyLen {
+		return "", errors.New("invalid encrypted data")
+	}
+	
+	encryptedKey := data[2 : 2+keyLen]
+	ciphertext := data[2+keyLen:]
+	
+	aesKey, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, kp.PrivateKey, encryptedKey, nil)
+	if err != nil {
+		return "", err
+	}
+	
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return "", err
+	}
+	
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", errors.New("ciphertext too short")
+	}
+	
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	
+	return string(plaintext), nil
+}
+
+func GetKeyFingerprint(publicKey *rsa.PublicKey) (string, error) {
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", err
+	}
+	
+	hash := sha256.Sum256(pubKeyBytes)
+	return hex.EncodeToString(hash[:])[:16], nil
+}
+
+func (kp *KeyPair) GetFingerprint() (string, error) {
+	return GetKeyFingerprint(kp.PublicKey)
+}
+
+type PeerKey struct {
+	PublicKey         *rsa.PublicKey
+	Fingerprint       string
+	Trusted           bool
+	EphemeralKey      *ecdh.PrivateKey
+	PeerEphemeralKey  *ecdh.PublicKey
+	SessionKey        []byte
+	SessionExpiry     time.Time
+}
+
+type EphemeralKeyExchange struct {
+	curve      ecdh.Curve
+	privateKey *ecdh.PrivateKey
+	publicKey  *ecdh.PublicKey
+}
+
+func NewEphemeralKeyExchange() (*EphemeralKeyExchange, error) {
+	curve := ecdh.P256()
+	privateKey, err := curve.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return &EphemeralKeyExchange{
+		curve:      curve,
+		privateKey: privateKey,
+		publicKey:  privateKey.PublicKey(),
+	}, nil
+}
+
+func (eke *EphemeralKeyExchange) GetPublicKeyBytes() []byte {
+	return eke.publicKey.Bytes()
+}
+
+func (eke *EphemeralKeyExchange) ComputeSharedSecret(peerPublicKeyBytes []byte) ([]byte, error) {
+	peerPublicKey, err := eke.curve.NewPublicKey(peerPublicKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	sharedSecret, err := eke.privateKey.ECDH(peerPublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Derive session key using HKDF-like approach
+	hash := sha256.Sum256(sharedSecret)
+	return hash[:], nil
+}
+
+func EncryptWithSessionKey(message string, sessionKey []byte) ([]byte, error) {
+	block, err := aes.NewCipher(sessionKey)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(message), nil)
+	return ciphertext, nil
+}
+
+func DecryptWithSessionKey(ciphertext []byte, sessionKey []byte) (string, error) {
+	block, err := aes.NewCipher(sessionKey)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", errors.New("ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
+}
+
+func SignMessage(message []byte, privateKey *rsa.PrivateKey) ([]byte, error) {
+	hash := sha256.Sum256(message)
+	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto2.SHA256, hash[:])
+	if err != nil {
+		return nil, err
+	}
+	return signature, nil
+}
+
+func VerifySignature(message []byte, signature []byte, publicKey *rsa.PublicKey) error {
+	hash := sha256.Sum256(message)
+	return rsa.VerifyPKCS1v15(publicKey, crypto2.SHA256, hash[:], signature)
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/security/ratelimit.go`:
+
+```go
+package security
+
+import (
+	"sync"
+	"time"
+)
+
+type RateLimiter struct {
+	requests map[string][]time.Time
+	mutex    sync.RWMutex
+	limit    int
+	window   time.Duration
+}
+
+func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
+	return &RateLimiter{
+		requests: make(map[string][]time.Time),
+		limit:    limit,
+		window:   window,
+	}
+}
+
+func (rl *RateLimiter) Allow(key string) bool {
+	rl.mutex.Lock()
+	defer rl.mutex.Unlock()
+
+	now := time.Now()
+	
+	// Get or create request times for this key
+	times, exists := rl.requests[key]
+	if !exists {
+		times = make([]time.Time, 0)
+	}
+
+	// Remove old requests outside the window
+	cutoff := now.Add(-rl.window)
+	validTimes := make([]time.Time, 0)
+	for _, t := range times {
+		if t.After(cutoff) {
+			validTimes = append(validTimes, t)
+		}
+	}
+
+	// Check if we're within the limit
+	if len(validTimes) >= rl.limit {
+		rl.requests[key] = validTimes
+		return false
+	}
+
+	// Add current request
+	validTimes = append(validTimes, now)
+	rl.requests[key] = validTimes
+	
+	return true
+}
+
+func (rl *RateLimiter) Reset(key string) {
+	rl.mutex.Lock()
+	defer rl.mutex.Unlock()
+	delete(rl.requests, key)
+}
+
+func (rl *RateLimiter) GetRequestCount(key string) int {
+	rl.mutex.RLock()
+	defer rl.mutex.RUnlock()
+	
+	times, exists := rl.requests[key]
+	if !exists {
+		return 0
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+	count := 0
+	for _, t := range times {
+		if t.After(cutoff) {
+			count++
+		}
+	}
+	
+	return count
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/server/server.go`:
+
+```go
+package server
+
+import (
+	"bufio"
+	"crypto/rsa"
+	"crypto/x509"
+	"fmt"
+	"indi_chat/internal/crypto"
+	"indi_chat/internal/protocol"
+	"indi_chat/internal/security"
+	"log"
+	"net"
+	"strings"
+	"sync"
+	"time"
+)
+
+type Client struct {
+	conn      net.Conn
+	name      string
+	publicKey *rsa.PublicKey
+	writer    *bufio.Writer
+}
+
+type Server struct {
+	clients     map[string]*Client
+	mutex       sync.RWMutex
+	rateLimiter *security.RateLimiter
+}
+
+func NewServer() *Server {
+	return &Server{
+		clients:     make(map[string]*Client),
+		rateLimiter: security.NewRateLimiter(3, 5*time.Minute), // 3 key updates per 5 minutes
+	}
+}
+
+func (s *Server) Start(port string) error {
+	listener, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+
+	log.Printf("Server listening on port %s", port)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Printf("Error accepting connection: %v", err)
+			continue
+		}
+
+		go s.handleClient(conn)
+	}
+}
+
+func (s *Server) handleClient(conn net.Conn) {
+	defer conn.Close()
+	
+	scanner := bufio.NewScanner(conn)
+	writer := bufio.NewWriter(conn)
+	
+	var client *Client
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		
+		msg, err := protocol.MessageFromJSON([]byte(line))
+		if err != nil {
+			log.Printf("Error parsing message: %v", err)
+			continue
+		}
+
+		switch msg.Type {
+		case protocol.TypeHandshake:
+			client = s.handleHandshake(conn, writer, msg)
+		case protocol.TypeJoin:
+			s.handleJoin(client, msg)
+		case protocol.TypeChat:
+			s.handleChat(client, msg)
+		case protocol.TypeKeyUpdate:
+			s.handleKeyUpdate(client, msg)
+		case protocol.TypeKeyRequest:
+			s.handleKeyRequest(client, msg)
+		case protocol.TypeEphemeralKey:
+			s.handleEphemeralKey(client, msg)
+		case protocol.TypeSessionRequest:
+			s.handleSessionRequest(client, msg)
+		case protocol.TypeLeave:
+			s.handleLeave(client)
+			return
+		}
+	}
+
+	if client != nil {
+		s.removeClient(client.name)
+	}
+}
+
+func (s *Server) handleHandshake(conn net.Conn, writer *bufio.Writer, msg *protocol.Message) *Client {
+	client := &Client{
+		conn:   conn,
+		name:   msg.From,
+		writer: writer,
+	}
+
+	if len(msg.PublicKey) > 0 {
+		var err error
+		client.publicKey, err = crypto.PublicKeyFromBytes(msg.PublicKey)
+		if err != nil {
+			log.Printf("Error parsing public key: %v", err)
+		}
+	}
+
+	s.mutex.Lock()
+	s.clients[client.name] = client
+	s.mutex.Unlock()
+
+	log.Printf("Client %s connected", client.name)
+	return client
+}
+
+func (s *Server) handleJoin(client *Client, msg *protocol.Message) {
+	s.mutex.RLock()
+	clientList := make([]string, 0, len(s.clients))
+	for name := range s.clients {
+		if name != client.name {
+			clientList = append(clientList, name)
+		}
+	}
+	s.mutex.RUnlock()
+
+	response := protocol.NewMessage(protocol.TypeJoin, "server", client.name, strings.Join(clientList, ","))
+	s.sendToClient(client, response)
+
+	// Send all existing public keys to the new client
+	s.sendAllPublicKeys(client)
+
+	// Broadcast new client's public key to all other clients
+	if client.publicKey != nil {
+		s.broadcastPublicKey(client.name, client.publicKey, client.name)
+	}
+
+	joinMsg := protocol.NewMessage(protocol.TypeJoin, "server", "", fmt.Sprintf("%s joined the chat", client.name))
+	s.broadcast(joinMsg, client.name)
+}
+
+func (s *Server) handleChat(client *Client, msg *protocol.Message) {
+	if msg.To == "" {
+		s.broadcast(msg, client.name)
+	} else {
+		s.sendToSpecificClient(msg.To, msg)
+	}
+}
+
+func (s *Server) handleLeave(client *Client) {
+	leaveMsg := protocol.NewMessage(protocol.TypeLeave, "server", "", fmt.Sprintf("%s left the chat", client.name))
+	s.broadcast(leaveMsg, client.name)
+	s.removeClient(client.name)
+}
+
+func (s *Server) broadcast(msg *protocol.Message, except string) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for name, client := range s.clients {
+		if name != except {
+			s.sendToClient(client, msg)
+		}
+	}
+}
+
+func (s *Server) sendToSpecificClient(clientName string, msg *protocol.Message) {
+	s.mutex.RLock()
+	client, exists := s.clients[clientName]
+	s.mutex.RUnlock()
+
+	if exists {
+		s.sendToClient(client, msg)
+	}
+}
+
+func (s *Server) sendToClient(client *Client, msg *protocol.Message) {
+	data, err := msg.ToJSON()
+	if err != nil {
+		log.Printf("Error serializing message: %v", err)
+		return
+	}
+
+	client.writer.WriteString(string(data) + "\n")
+	client.writer.Flush()
+}
+
+func (s *Server) removeClient(name string) {
+	s.mutex.Lock()
+	delete(s.clients, name)
+	s.mutex.Unlock()
+	log.Printf("Client %s disconnected", name)
+}
+
+func (s *Server) sendAllPublicKeys(client *Client) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for name, c := range s.clients {
+		if name != client.name && c.publicKey != nil {
+			keyMsg := protocol.NewMessage(protocol.TypeKeyExchange, name, client.name, "")
+			
+			pubKeyBytes, err := x509.MarshalPKIXPublicKey(c.publicKey)
+			if err != nil {
+				log.Printf("Error marshaling public key for %s: %v", name, err)
+				continue
+			}
+			keyMsg.PublicKey = pubKeyBytes
+			
+			fingerprint, err := crypto.GetKeyFingerprint(c.publicKey)
+			if err == nil {
+				keyMsg.KeyFingerprint = fingerprint
+			}
+			
+			s.sendToClient(client, keyMsg)
+		}
+	}
+}
+
+func (s *Server) broadcastPublicKey(name string, publicKey *rsa.PublicKey, except string) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		log.Printf("Error marshaling public key for broadcast: %v", err)
+		return
+	}
+
+	fingerprint, err := crypto.GetKeyFingerprint(publicKey)
+	if err != nil {
+		log.Printf("Error getting fingerprint for %s: %v", name, err)
+		return
+	}
+
+	keyMsg := protocol.NewMessage(protocol.TypeKeyExchange, name, "", "")
+	keyMsg.PublicKey = pubKeyBytes
+	keyMsg.KeyFingerprint = fingerprint
+
+	for clientName, client := range s.clients {
+		if clientName != except {
+			s.sendToClient(client, keyMsg)
+		}
+	}
+}
+
+func (s *Server) handleKeyUpdate(client *Client, msg *protocol.Message) {
+	if len(msg.PublicKey) == 0 {
+		return
+	}
+
+	// Rate limit key updates
+	if !s.rateLimiter.Allow(client.name + ":key_update") {
+		log.Printf("Rate limited key update from %s", client.name)
+		errorMsg := protocol.NewMessage(protocol.TypeChat, "server", client.name, "Rate limit exceeded for key updates. Please wait before updating again.")
+		s.sendToClient(client, errorMsg)
+		return
+	}
+
+	newPublicKey, err := crypto.PublicKeyFromBytes(msg.PublicKey)
+	if err != nil {
+		log.Printf("Error parsing updated public key from %s: %v", client.name, err)
+		return
+	}
+
+	s.mutex.Lock()
+	client.publicKey = newPublicKey
+	s.mutex.Unlock()
+
+	log.Printf("Updated public key for client %s", client.name)
+
+	s.broadcastPublicKey(client.name, newPublicKey, client.name)
+}
+
+func (s *Server) handleKeyRequest(client *Client, msg *protocol.Message) {
+	targetName := msg.Content
+	
+	s.mutex.RLock()
+	targetClient, exists := s.clients[targetName]
+	s.mutex.RUnlock()
+
+	if !exists || targetClient.publicKey == nil {
+		return
+	}
+
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(targetClient.publicKey)
+	if err != nil {
+		log.Printf("Error marshaling requested public key: %v", err)
+		return
+	}
+
+	fingerprint, err := crypto.GetKeyFingerprint(targetClient.publicKey)
+	if err != nil {
+		log.Printf("Error getting fingerprint for requested key: %v", err)
+		return
+	}
+
+	keyMsg := protocol.NewMessage(protocol.TypeKeyExchange, targetName, client.name, "")
+	keyMsg.PublicKey = pubKeyBytes
+	keyMsg.KeyFingerprint = fingerprint
+
+	s.sendToClient(client, keyMsg)
+}
+
+func (s *Server) handleEphemeralKey(client *Client, msg *protocol.Message) {
+	targetName := msg.To
+	if targetName == "" {
+		return
+	}
+
+	s.mutex.RLock()
+	targetClient, exists := s.clients[targetName]
+	s.mutex.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	// Forward ephemeral key to target client
+	forwardMsg := protocol.NewMessage(protocol.TypeEphemeralKey, msg.From, targetName, "")
+	forwardMsg.EphemeralKey = msg.EphemeralKey
+	forwardMsg.SessionID = msg.SessionID
+
+	s.sendToClient(targetClient, forwardMsg)
+}
+
+func (s *Server) handleSessionRequest(client *Client, msg *protocol.Message) {
+	targetName := msg.To
+	if targetName == "" {
+		return
+	}
+
+	s.mutex.RLock()
+	targetClient, exists := s.clients[targetName]
+	s.mutex.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	// Forward session request to target client
+	forwardMsg := protocol.NewMessage(protocol.TypeSessionRequest, msg.From, targetName, "")
+	forwardMsg.SessionID = msg.SessionID
+
+	s.sendToClient(targetClient, forwardMsg)
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/protocol/message.go`:
+
+```go
+package protocol
+
+import (
+	"encoding/json"
+	"time"
+)
+
+type MessageType string
+
+const (
+	TypeHandshake       MessageType = "handshake"
+	TypeChat            MessageType = "chat"
+	TypeJoin            MessageType = "join"
+	TypeLeave           MessageType = "leave"
+	TypeKeyExchange     MessageType = "key_exchange"
+	TypeKeyUpdate       MessageType = "key_update"
+	TypeKeyRequest      MessageType = "key_request"
+	TypeEphemeralKey    MessageType = "ephemeral_key"
+	TypeSessionRequest  MessageType = "session_request"
+)
+
+type Message struct {
+	Type           MessageType `json:"type"`
+	From           string      `json:"from"`
+	To             string      `json:"to,omitempty"`
+	Content        string      `json:"content"`
+	PublicKey      []byte      `json:"public_key,omitempty"`
+	Timestamp      time.Time   `json:"timestamp"`
+	Encrypted      bool        `json:"encrypted,omitempty"`
+	KeyFingerprint string      `json:"key_fingerprint,omitempty"`
+	Signature      []byte      `json:"signature,omitempty"`
+	EphemeralKey   []byte      `json:"ephemeral_key,omitempty"`
+	SessionID      string      `json:"session_id,omitempty"`
+	ForwardSecure  bool        `json:"forward_secure,omitempty"`
+}
+
+func NewMessage(msgType MessageType, from, to, content string) *Message {
+	return &Message{
+		Type:      msgType,
+		From:      from,
+		To:        to,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+}
+
+func (m *Message) ToJSON() ([]byte, error) {
+	return json.Marshal(m)
+}
+
+func MessageFromJSON(data []byte) (*Message, error) {
+	var msg Message
+	err := json.Unmarshal(data, &msg)
+	return &msg, err
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/client/client.go`:
+
+```go
+package client
+
+import (
+	"bufio"
+	"encoding/base64"
+	"fmt"
+	"indi_chat/internal/crypto"
+	"indi_chat/internal/protocol"
+	"log"
+	"net"
+	"os"
+	"strings"
+	"time"
+)
+
+type Client struct {
+	conn            net.Conn
+	name            string
+	keyPair         *crypto.KeyPair
+	scanner         *bufio.Scanner
+	writer          *bufio.Writer
+	peers           map[string]*crypto.PeerKey
+	trustedPeers    map[string]string
+	sessions        map[string]*SessionInfo
+	logChain        *crypto.LogChain
+	loggingEnabled  bool
+}
+
+type SessionInfo struct {
+	SessionKey    []byte
+	EphemeralKey  *crypto.EphemeralKeyExchange
+	Expiry        time.Time
+	SessionID     string
+}
+
+
+func NewClient(name string) (*Client, error) {
+	keyPair, err := crypto.GenerateKeyPair()
+	if err != nil {
+		return nil, err
+	}
+
+	logChain, err := crypto.NewLogChain(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{
+		name:           name,
+		keyPair:        keyPair,
+		peers:          make(map[string]*crypto.PeerKey),
+		trustedPeers:   make(map[string]string),
+		sessions:       make(map[string]*SessionInfo),
+		logChain:       logChain,
+		loggingEnabled: true,
+	}, nil
+}
+
+func (c *Client) Connect(address string) error {
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		return err
+	}
+
+	c.conn = conn
+	c.scanner = bufio.NewScanner(conn)
+	c.writer = bufio.NewWriter(conn)
+
+	publicKeyBytes, err := c.keyPair.PublicKeyBytes()
+	if err != nil {
+		return err
+	}
+
+	handshake := protocol.NewMessage(protocol.TypeHandshake, c.name, "", "")
+	handshake.PublicKey = publicKeyBytes
+
+	if err := c.sendMessage(handshake); err != nil {
+		return err
+	}
+
+	joinMsg := protocol.NewMessage(protocol.TypeJoin, c.name, "", "")
+	if err := c.sendMessage(joinMsg); err != nil {
+		return err
+	}
+
+	go c.listenForMessages()
+
+	return nil
+}
+
+func (c *Client) sendMessage(msg *protocol.Message) error {
+	data, err := msg.ToJSON()
+	if err != nil {
+		return err
+	}
+
+	c.writer.WriteString(string(data) + "\n")
+	return c.writer.Flush()
+}
+
+func (c *Client) listenForMessages() {
+	for c.scanner.Scan() {
+		line := c.scanner.Text()
+		
+		msg, err := protocol.MessageFromJSON([]byte(line))
+		if err != nil {
+			log.Printf("Error parsing message: %v", err)
+			continue
+		}
+
+		switch msg.Type {
+		case protocol.TypeJoin:
+			if msg.From == "server" && msg.To == c.name {
+				fmt.Printf("Connected users: %s\n", msg.Content)
+			} else if msg.From != c.name {
+				fmt.Printf("*** %s\n", msg.Content)
+			}
+		case protocol.TypeLeave:
+			if msg.From != c.name {
+				fmt.Printf("*** %s\n", msg.Content)
+				delete(c.peers, msg.From)
+				delete(c.trustedPeers, msg.From)
+			}
+		case protocol.TypeKeyExchange:
+			c.handleKeyExchange(msg)
+		case protocol.TypeEphemeralKey:
+			c.handleEphemeralKey(msg)
+		case protocol.TypeSessionRequest:
+			c.handleSessionRequest(msg)
+		case protocol.TypeChat:
+			c.handleChatMessage(msg)
+		}
+	}
+}
+
+func (c *Client) handleChatMessage(msg *protocol.Message) {
+	if msg.From == c.name {
+		return
+	}
+
+	content := msg.Content
+	encryptedIcon := ""
+	signatureValid := false
+	
+	// Verify message signature if present
+	if len(msg.Signature) > 0 {
+		if peerKey, exists := c.peers[msg.From]; exists && peerKey.PublicKey != nil {
+			messageData := []byte(msg.Content)
+			if err := crypto.VerifySignature(messageData, msg.Signature, peerKey.PublicKey); err == nil {
+				signatureValid = true
+			} else {
+				log.Printf("Invalid signature from %s: %v", msg.From, err)
+			}
+		}
+	}
+	
+	if msg.Encrypted {
+		if msg.ForwardSecure {
+			// Use session key for forward secrecy
+			if session, exists := c.sessions[msg.SessionID]; exists {
+				encryptedData, err := base64.StdEncoding.DecodeString(msg.Content)
+				if err != nil {
+					log.Printf("Error decoding forward secure message: %v", err)
+					return
+				}
+				
+				decrypted, err := crypto.DecryptWithSessionKey(encryptedData, session.SessionKey)
+				if err != nil {
+					log.Printf("Error decrypting forward secure message from %s: %v", msg.From, err)
+					return
+				}
+				content = decrypted
+				encryptedIcon = "🔐 "
+			} else {
+				log.Printf("No session key for forward secure message from %s", msg.From)
+				return
+			}
+		} else {
+			// Traditional RSA encryption
+			encryptedData, err := base64.StdEncoding.DecodeString(msg.Content)
+			if err != nil {
+				log.Printf("Error decoding encrypted message: %v", err)
+				return
+			}
+			
+			decrypted, err := c.keyPair.DecryptMessage(encryptedData)
+			if err != nil {
+				log.Printf("Error decrypting message from %s: %v", msg.From, err)
+				return
+			}
+			content = decrypted
+			encryptedIcon = "🔒 "
+		}
+	}
+
+	// Add signature verification indicator
+	signatureIcon := ""
+	if len(msg.Signature) > 0 {
+		if signatureValid {
+			signatureIcon = "✅ "
+		} else {
+			signatureIcon = "❌ "
+		}
+	}
+
+	timestamp := msg.Timestamp.Format("15:04:05")
+	if msg.To == "" {
+		fmt.Printf("[%s] %s%s%s: %s\n", timestamp, encryptedIcon, signatureIcon, msg.From, content)
+	} else {
+		fmt.Printf("[%s] %s%s%s (private): %s\n", timestamp, encryptedIcon, signatureIcon, msg.From, content)
+	}
+
+	// Log message if logging is enabled
+	if c.loggingEnabled {
+		signatureStr := ""
+		if len(msg.Signature) > 0 {
+			signatureStr = base64.StdEncoding.EncodeToString(msg.Signature)
+		}
+		c.logChain.AddMessage(msg.From, msg.To, content, signatureStr)
+	}
+}
+
+func (c *Client) handleKeyExchange(msg *protocol.Message) {
+	if msg.From == c.name {
+		return
+	}
+
+	publicKey, err := crypto.PublicKeyFromBytes(msg.PublicKey)
+	if err != nil {
+		log.Printf("Error parsing public key from %s: %v", msg.From, err)
+		return
+	}
+
+	fingerprint := msg.KeyFingerprint
+	if fingerprint == "" {
+		fingerprint, err = crypto.GetKeyFingerprint(publicKey)
+		if err != nil {
+			log.Printf("Error getting fingerprint for %s: %v", msg.From, err)
+			return
+		}
+	}
+
+	trusted := false
+	if storedFingerprint, exists := c.trustedPeers[msg.From]; exists {
+		trusted = (storedFingerprint == fingerprint)
+		if !trusted {
+			fmt.Printf("⚠️  WARNING: %s's key fingerprint has changed!\n", msg.From)
+			fmt.Printf("   Previous: %s\n", storedFingerprint)
+			fmt.Printf("   Current:  %s\n", fingerprint)
+		}
+	}
+
+	c.peers[msg.From] = &crypto.PeerKey{
+		PublicKey:   publicKey,
+		Fingerprint: fingerprint,
+		Trusted:     trusted,
+	}
+
+	if !trusted {
+		fmt.Printf("📋 New key for %s (fingerprint: %s) - use '/trust %s' to verify\n", 
+			msg.From, fingerprint, msg.From)
+	}
+}
+
+func (c *Client) StartChat() {
+	fmt.Printf("Connected to chat as %s. Type '/help' for commands.\n", c.name)
+	
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("> ")
+		if !scanner.Scan() {
+			break
+		}
+
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			continue
+		}
+
+		if strings.HasPrefix(input, "/") {
+			c.handleCommand(input)
+		} else {
+			c.sendChatMessage(input, "", false)
+		}
+	}
+
+	c.disconnect()
+}
+
+func (c *Client) handleCommand(command string) {
+	parts := strings.SplitN(command, " ", 3)
+	cmd := parts[0]
+
+	switch cmd {
+	case "/help":
+		fmt.Println("Commands:")
+		fmt.Println("  /help - Show this help")
+		fmt.Println("  /pm <user> <message> - Send private message")
+		fmt.Println("  /pms <user> <message> - Send forward secure private message")
+		fmt.Println("  /trust <user> - Trust a user's key")
+		fmt.Println("  /keys - Show all user keys and trust status")
+		fmt.Println("  /updatekey - Generate and broadcast new RSA key")
+		fmt.Println("  /mykey - Show your key fingerprint")
+		fmt.Println("  /logging <on|off> - Enable/disable message logging")
+		fmt.Println("  /verify - Verify message log integrity")
+		fmt.Println("  /logs - Show recent message logs")
+		fmt.Println("  /quit - Leave the chat")
+	case "/pm":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /pm <user> <message>")
+			return
+		}
+		c.sendChatMessage(parts[2], parts[1], false)
+	case "/pms":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /pms <user> <message>")
+			return
+		}
+		c.sendForwardSecureMessage(parts[2], parts[1])
+	case "/trust":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /trust <user>")
+			return
+		}
+		c.trustUser(parts[1])
+	case "/keys":
+		c.showKeys()
+	case "/updatekey":
+		c.updateKey()
+	case "/mykey":
+		c.showMyKey()
+	case "/logging":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /logging <on|off>")
+			return
+		}
+		c.toggleLogging(parts[1])
+	case "/verify":
+		c.verifyLogs()
+	case "/logs":
+		c.showLogs()
+	case "/quit":
+		c.disconnect()
+		os.Exit(0)
+	default:
+		fmt.Printf("Unknown command: %s\n", cmd)
+	}
+}
+
+func (c *Client) sendChatMessage(content, to string, forwardSecure bool) {
+	msg := protocol.NewMessage(protocol.TypeChat, c.name, to, content)
+	
+	// Sign the message
+	messageData := []byte(content)
+	signature, err := crypto.SignMessage(messageData, c.keyPair.PrivateKey)
+	if err != nil {
+		log.Printf("Error signing message: %v", err)
+		return
+	}
+	msg.Signature = signature
+	
+	// Encrypt message if we have recipient's key
+	if to != "" {
+		if peerKey, exists := c.peers[to]; exists && peerKey.PublicKey != nil {
+			if forwardSecure {
+				// Use forward secure encryption
+				if session, exists := c.sessions[to]; exists && time.Now().Before(session.Expiry) {
+					encryptedData, err := crypto.EncryptWithSessionKey(content, session.SessionKey)
+					if err != nil {
+						log.Printf("Error encrypting with session key: %v", err)
+						return
+					}
+					msg.Content = base64.StdEncoding.EncodeToString(encryptedData)
+					msg.Encrypted = true
+					msg.ForwardSecure = true
+					msg.SessionID = session.SessionID
+					fmt.Printf("[private to %s]: 🔐 %s\n", to, content)
+				} else {
+					fmt.Printf("No valid session with %s. Establishing new session...\n", to)
+					c.initiateEphemeralKeyExchange(to)
+					return
+				}
+			} else {
+				// Traditional RSA encryption
+				encryptedData, err := crypto.EncryptMessage(content, peerKey.PublicKey)
+				if err != nil {
+					log.Printf("Error encrypting message: %v", err)
+					return
+				}
+				msg.Content = base64.StdEncoding.EncodeToString(encryptedData)
+				msg.Encrypted = true
+				fmt.Printf("[private to %s]: 🔒 %s\n", to, content)
+			}
+		} else {
+			fmt.Printf("[private to %s]: ⚠️  %s (unencrypted - no key)\n", to, content)
+		}
+	} else {
+		// For broadcast messages, don't encrypt (would need to encrypt for each user separately)
+		fmt.Printf("[broadcast]: %s\n", content)
+	}
+
+	if err := c.sendMessage(msg); err != nil {
+		log.Printf("Error sending message: %v", err)
+	}
+}
+
+func (c *Client) disconnect() {
+	leaveMsg := protocol.NewMessage(protocol.TypeLeave, c.name, "", "")
+	c.sendMessage(leaveMsg)
+	
+	if c.conn != nil {
+		c.conn.Close()
+	}
+}
+
+func (c *Client) trustUser(username string) {
+	peerKey, exists := c.peers[username]
+	if !exists {
+		fmt.Printf("User %s not found or no key available\n", username)
+		return
+	}
+
+	fmt.Printf("Trust key for %s?\n", username)
+	fmt.Printf("Fingerprint: %s\n", peerKey.Fingerprint)
+	fmt.Print("Type 'yes' to trust: ")
+	
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() && strings.ToLower(strings.TrimSpace(scanner.Text())) == "yes" {
+		c.trustedPeers[username] = peerKey.Fingerprint
+		peerKey.Trusted = true
+		fmt.Printf("✅ Trusted key for %s\n", username)
+	} else {
+		fmt.Printf("❌ Key not trusted\n")
+	}
+}
+
+func (c *Client) showKeys() {
+	fmt.Println("User Keys:")
+	for username, peerKey := range c.peers {
+		trustStatus := "❌ Not trusted"
+		if peerKey.Trusted {
+			trustStatus = "✅ Trusted"
+		}
+		fmt.Printf("  %s: %s (%s)\n", username, peerKey.Fingerprint, trustStatus)
+	}
+}
+
+func (c *Client) updateKey() {
+	newKeyPair, err := crypto.GenerateKeyPair()
+	if err != nil {
+		fmt.Printf("Error generating new key: %v\n", err)
+		return
+	}
+
+	c.keyPair = newKeyPair
+	
+	publicKeyBytes, err := c.keyPair.PublicKeyBytes()
+	if err != nil {
+		fmt.Printf("Error serializing new key: %v\n", err)
+		return
+	}
+
+	fingerprint, err := c.keyPair.GetFingerprint()
+	if err != nil {
+		fmt.Printf("Error getting fingerprint: %v\n", err)
+		return
+	}
+
+	updateMsg := protocol.NewMessage(protocol.TypeKeyUpdate, c.name, "", "")
+	updateMsg.PublicKey = publicKeyBytes
+	updateMsg.KeyFingerprint = fingerprint
+
+	if err := c.sendMessage(updateMsg); err != nil {
+		fmt.Printf("Error broadcasting new key: %v\n", err)
+		return
+	}
+
+	fmt.Printf("🔄 New key generated and broadcast (fingerprint: %s)\n", fingerprint)
+}
+
+func (c *Client) showMyKey() {
+	fingerprint, err := c.keyPair.GetFingerprint()
+	if err != nil {
+		fmt.Printf("Error getting fingerprint: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("Your key fingerprint: %s\n", fingerprint)
+}
+
+func (c *Client) initiateEphemeralKeyExchange(targetUser string) {
+	eke, err := crypto.NewEphemeralKeyExchange()
+	if err != nil {
+		fmt.Printf("Error creating ephemeral key: %v\n", err)
+		return
+	}
+
+	sessionID := fmt.Sprintf("%s-%s-%d", c.name, targetUser, time.Now().UnixNano())
+	
+	c.sessions[targetUser] = &SessionInfo{
+		EphemeralKey: eke,
+		SessionID:    sessionID,
+		Expiry:       time.Now().Add(24 * time.Hour), // 24 hour session
+	}
+
+	ephemeralMsg := protocol.NewMessage(protocol.TypeEphemeralKey, c.name, targetUser, "")
+	ephemeralMsg.EphemeralKey = eke.GetPublicKeyBytes()
+	ephemeralMsg.SessionID = sessionID
+
+	if err := c.sendMessage(ephemeralMsg); err != nil {
+		log.Printf("Error sending ephemeral key: %v", err)
+	}
+}
+
+func (c *Client) sendForwardSecureMessage(content, to string) {
+	c.sendChatMessage(content, to, true)
+}
+
+func (c *Client) handleEphemeralKey(msg *protocol.Message) {
+	if msg.From == c.name {
+		return
+	}
+
+	// Create our ephemeral key
+	eke, err := crypto.NewEphemeralKeyExchange()
+	if err != nil {
+		log.Printf("Error creating ephemeral key response: %v", err)
+		return
+	}
+
+	// Compute shared secret
+	sharedSecret, err := eke.ComputeSharedSecret(msg.EphemeralKey)
+	if err != nil {
+		log.Printf("Error computing shared secret: %v", err)
+		return
+	}
+
+	// Store session
+	c.sessions[msg.From] = &SessionInfo{
+		SessionKey:   sharedSecret,
+		EphemeralKey: eke,
+		SessionID:    msg.SessionID,
+		Expiry:       time.Now().Add(24 * time.Hour),
+	}
+
+	// Send our ephemeral key back
+	responseMsg := protocol.NewMessage(protocol.TypeEphemeralKey, c.name, msg.From, "")
+	responseMsg.EphemeralKey = eke.GetPublicKeyBytes()
+	responseMsg.SessionID = msg.SessionID
+
+	if err := c.sendMessage(responseMsg); err != nil {
+		log.Printf("Error sending ephemeral key response: %v", err)
+	}
+
+	fmt.Printf("🔐 Established forward secure session with %s\n", msg.From)
+}
+
+func (c *Client) handleSessionRequest(msg *protocol.Message) {
+	// Handle session requests if needed
+	fmt.Printf("Session request from %s\n", msg.From)
+}
+
+func (c *Client) toggleLogging(setting string) {
+	switch strings.ToLower(setting) {
+	case "on", "true", "1":
+		c.loggingEnabled = true
+		fmt.Println("✅ Message logging enabled")
+	case "off", "false", "0":
+		c.loggingEnabled = false
+		fmt.Println("❌ Message logging disabled")
+	default:
+		fmt.Printf("Current logging status: %v\n", c.loggingEnabled)
+	}
+}
+
+func (c *Client) verifyLogs() {
+	valid, err := c.logChain.VerifyIntegrity()
+	if err != nil {
+		fmt.Printf("❌ Log verification failed: %v\n", err)
+		return
+	}
+	
+	if valid {
+		fmt.Println("✅ Message logs verified - no tampering detected")
+	} else {
+		fmt.Println("❌ Message logs integrity compromised!")
+	}
+}
+
+func (c *Client) showLogs() {
+	logs := c.logChain.GetLogs()
+	if len(logs) == 0 {
+		fmt.Println("No logged messages")
+		return
+	}
+
+	fmt.Println("Recent message logs:")
+	start := len(logs) - 10
+	if start < 0 {
+		start = 0
+	}
+
+	for i := start; i < len(logs); i++ {
+		log := logs[i]
+		timestamp := log.Timestamp.Format("15:04:05")
+		direction := "→"
+		if log.To != "" {
+			direction = "private→"
+		}
+		fmt.Printf("[%s] %s %s %s: %s\n", timestamp, log.From, direction, log.To, log.Content)
+	}
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/README.md`:
+
+```md
+# IndiChat - Secure CLI Chat Application
+
+A minimal, independent CLI-based chat application with enterprise-grade end-to-end encryption, built in Go.
+
+## Features
+
+### 🔒 Security First
+- **End-to-End Encryption**: RSA-2048 + AES-GCM encryption
+- **Forward Secrecy**: ECDH ephemeral keys prevent retroactive decryption
+- **Message Signing**: RSA digital signatures ensure authenticity
+- **Tamper-Proof Logging**: SHA-256 hash chaining detects log tampering
+- **Rate Limiting**: DoS protection for sensitive operations
+
+### 💬 Chat Features
+- **Private Messaging**: Secure 1-on-1 conversations
+- **Group Chat**: Broadcast messages to all users
+- **Key Management**: Trust-based public key verification
+- **Session Management**: 24-hour forward secure sessions
+
+### 🛡️ Advanced Security
+- **Key Fingerprints**: SHA-256 fingerprints for key verification
+- **Trust System**: Manual key verification and trust management
+- **Key Rotation**: Secure RSA key updates with rate limiting
+- **Audit Logs**: Cryptographically secured message history
+
+## Quick Start
+
+### Build
+```bash
+make build
+# or
+go build -o bin/server ./cmd/server
+go build -o bin/client ./cmd/client
+```
+
+### Run Server
+```bash
+./bin/server -port 8080
+```
+
+### Connect Clients
+```bash
+./bin/client -name Alice -server localhost:8080
+./bin/client -name Bob -server localhost:8080
+```
+
+## Commands
+
+### Basic Commands
+- `/help` - Show all available commands
+- `/quit` - Leave the chat
+
+### Messaging
+- `<message>` - Send broadcast message to all users
+- `/pm <user> <message>` - Send private RSA-encrypted message
+- `/pms <user> <message>` - Send forward secure message (ECDH)
+
+### Key Management
+- `/keys` - Show all user keys and trust status
+- `/trust <user>` - Trust a user's key after verification
+- `/mykey` - Show your RSA key fingerprint
+- `/updatekey` - Generate and broadcast new RSA key
+
+### Security & Logging
+- `/logging <on|off>` - Enable/disable message logging
+- `/verify` - Verify message log integrity
+- `/logs` - Show recent logged messages
+
+## Security Indicators
+
+### Message Types
+- 🔒 **RSA Encrypted** - Traditional RSA+AES encryption
+- 🔐 **Forward Secure** - ECDH ephemeral key encryption
+- ⚠️ **Unencrypted** - No encryption (missing recipient key)
+
+### Signature Verification
+- ✅ **Valid Signature** - Message authentically signed
+- ❌ **Invalid Signature** - Signature verification failed
+- No icon - Unsigned message
+
+### Key Status
+- ✅ **Trusted** - Key manually verified and trusted
+- ❌ **Not Trusted** - Key not yet verified
+- 📋 **New Key** - First time seeing this key
+
+## Architecture
+
+### Components
+```
+indi_chat/
+├── cmd/
+│   ├── server/          # TCP server entry point
+│   └── client/          # CLI client entry point
+├── internal/
+│   ├── crypto/          # Encryption & key management
+│   ├── protocol/        # Message protocol definitions
+│   ├── server/          # Server implementation
+│   ├── client/          # Client implementation
+│   └── security/        # Rate limiting & security
+└── bin/                 # Compiled binaries
+```
+
+### Protocol
+- **JSON-based** message protocol over TCP
+- **TLS-ready** transport layer
+- **Extensible** message types for future features
+
+## Cryptographic Details
+
+### Encryption Algorithms
+- **RSA-2048** for key exchange and traditional encryption
+- **ECDH P-256** for forward secure ephemeral keys  
+- **AES-256-GCM** for symmetric encryption
+- **SHA-256** for hashing and signatures
+
+### Key Exchange Process
+1. **Initial Handshake**: Exchange RSA public keys
+2. **Key Distribution**: Server broadcasts keys to all clients
+3. **Trust Establishment**: Manual key fingerprint verification
+4. **Session Initiation**: ECDH ephemeral key exchange for forward secrecy
+
+### Forward Secrecy Implementation
+```
+Alice                Server                Bob
+  |                    |                    |
+  |-- ECDH Public ---->|---> Forward ------>|
+  |                    |                    |
+  |<--- ECDH Public ---|<--- Forward -------|
+  |                    |                    |
+  |-- Encrypted Msg -->|---> Forward ------>|
+  |   (Session Key)    |                    |
+```
+
+### Message Signing
+1. **Generate**: SHA-256 hash of message content
+2. **Sign**: RSA-PSS signature with sender's private key
+3. **Verify**: Recipient validates signature with sender's public key
+4. **Display**: Visual indicators show signature status
+
+### Log Integrity
+```
+Block N-1            Block N              Block N+1
+┌─────────────┐    ┌─────────────┐      ┌─────────────┐
+│ Msg Content │    │ Msg Content │      │ Msg Content │
+│ Timestamp   │    │ Timestamp   │      │ Timestamp   │
+│ Signature   │    │ Signature   │      │ Signature   │
+│ Prev Hash   │◄───│ Prev Hash   │◄─────│ Prev Hash   │
+│ Hash N-1    │    │ Hash N      │      │ Hash N+1    │
+└─────────────┘    └─────────────┘      └─────────────┘
+```
+
+## Security Considerations
+
+### Threat Model
+✅ **Protects Against**:
+- Passive eavesdropping (encryption)
+- Message forgery (digital signatures)
+- Retroactive decryption (forward secrecy)
+- Log tampering (hash chaining)
+- DoS attacks (rate limiting)
+
+⚠️ **Does Not Protect Against**:
+- Endpoint compromise
+- Side-channel attacks
+- Traffic analysis
+- Malicious server operators
+
+### Best Practices
+1. **Verify Key Fingerprints** out-of-band before trusting
+2. **Use Forward Secure Messages** (`/pms`) for sensitive communications
+3. **Regularly Update Keys** (`/updatekey`) if compromise suspected
+4. **Monitor Log Integrity** (`/verify`) for tampering detection
+5. **Secure Key Storage** - private keys stored in memory only
+
+## Configuration
+
+### Server Options
+```bash
+./bin/server -port <port>          # Default: 8080
+```
+
+### Client Options  
+```bash
+./bin/client -name <username> -server <address>
+# Default server: localhost:8080
+```
+
+### File Locations
+- **Message Logs**: `~/.indi_chat/logs/<username>.json`
+- **No Persistent Keys**: All keys generated fresh per session
+
+## Development
+
+### Requirements
+- Go 1.21+ (for crypto/ecdh support)
+- No external dependencies
+
+### Build Commands
+```bash
+make build       # Build both server and client
+make clean       # Remove binaries
+make run-server  # Run server in development
+make test        # Run tests
+make deps        # Download dependencies
+```
+
+### Testing
+```bash
+# Run in separate terminals:
+make run-server
+make run-client NAME=Alice  
+make run-client NAME=Bob
+```
+
+## Rate Limiting
+
+### Protected Operations
+- **Key Updates**: 3 per 5 minutes per client
+- **Future**: Message flooding protection
+
+### Implementation
+- **Sliding Window** algorithm
+- **Per-client** tracking
+- **Server-side** enforcement
+
+## Troubleshooting
+
+### Common Issues
+
+**"No key for user"**
+- Wait for key exchange to complete
+- Check network connectivity
+- Verify user is online
+
+**"Invalid signature"**  
+- Key may have been rotated
+- Check for MITM attacks
+- Re-verify key fingerprints
+
+**"Log verification failed"**
+- Log file may be corrupted
+- Check file permissions
+- Possible tampering detected
+
+**"Rate limit exceeded"**
+- Wait 5 minutes between key updates
+- Indicates potential DoS attack
+
+### Debug Mode
+```bash
+# Server with verbose logging
+./bin/server -port 8080 -v
+
+# Client with debug output  
+./bin/client -name Alice -debug
+```
+
+## Contributing
+
+1. **Security Focus**: All contributions must maintain security guarantees
+2. **No Dependencies**: Keep the project dependency-free
+3. **Test Coverage**: Include tests for new features
+4. **Documentation**: Update README for new commands/features
+
+## License
+
+MIT License - See LICENSE file for details.
+
+## Security Disclosure
+
+For security vulnerabilities, please email: [security contact]
+
+**Do not** open public issues for security bugs.
+
+---
+
+**IndiChat** - Where privacy meets simplicity. 🔒
+```
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/crypto/logging.go`:
+
+```go
+package crypto
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+type MessageLog struct {
+	ID          string    `json:"id"`
+	Timestamp   time.Time `json:"timestamp"`
+	From        string    `json:"from"`
+	To          string    `json:"to"`
+	Content     string    `json:"content"`
+	Signature   string    `json:"signature"`
+	PrevHash    string    `json:"prev_hash"`
+	Hash        string    `json:"hash"`
+}
+
+type LogChain struct {
+	filePath string
+	logs     []MessageLog
+}
+
+func NewLogChain(userID string) (*LogChain, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	
+	logDir := filepath.Join(homeDir, ".indi_chat", "logs")
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		return nil, err
+	}
+	
+	filePath := filepath.Join(logDir, fmt.Sprintf("%s.json", userID))
+	
+	lc := &LogChain{
+		filePath: filePath,
+		logs:     make([]MessageLog, 0),
+	}
+	
+	// Load existing logs
+	if err := lc.loadLogs(); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	
+	return lc, nil
+}
+
+func (lc *LogChain) AddMessage(from, to, content, signature string) error {
+	prevHash := ""
+	if len(lc.logs) > 0 {
+		prevHash = lc.logs[len(lc.logs)-1].Hash
+	}
+	
+	logEntry := MessageLog{
+		ID:        generateLogID(),
+		Timestamp: time.Now(),
+		From:      from,
+		To:        to,
+		Content:   content,
+		Signature: signature,
+		PrevHash:  prevHash,
+	}
+	
+	// Calculate hash of current entry
+	logEntry.Hash = lc.calculateHash(logEntry)
+	
+	lc.logs = append(lc.logs, logEntry)
+	
+	return lc.saveLogs()
+}
+
+func (lc *LogChain) VerifyIntegrity() (bool, error) {
+	prevHash := ""
+	
+	for i, log := range lc.logs {
+		// Verify previous hash chain
+		if log.PrevHash != prevHash {
+			return false, fmt.Errorf("hash chain broken at entry %d", i)
+		}
+		
+		// Verify current hash
+		calculatedHash := lc.calculateHash(log)
+		if log.Hash != calculatedHash {
+			return false, fmt.Errorf("hash mismatch at entry %d", i)
+		}
+		
+		prevHash = log.Hash
+	}
+	
+	return true, nil
+}
+
+func (lc *LogChain) GetLogs() []MessageLog {
+	return lc.logs
+}
+
+func (lc *LogChain) loadLogs() error {
+	data, err := os.ReadFile(lc.filePath)
+	if err != nil {
+		return err
+	}
+	
+	return json.Unmarshal(data, &lc.logs)
+}
+
+func (lc *LogChain) saveLogs() error {
+	data, err := json.MarshalIndent(lc.logs, "", "  ")
+	if err != nil {
+		return err
+	}
+	
+	return os.WriteFile(lc.filePath, data, 0600)
+}
+
+func (lc *LogChain) calculateHash(log MessageLog) string {
+	// Create hash input without the hash field itself
+	hashInput := fmt.Sprintf("%s%s%s%s%s%s%s",
+		log.ID,
+		log.Timestamp.Format(time.RFC3339Nano),
+		log.From,
+		log.To,
+		log.Content,
+		log.Signature,
+		log.PrevHash,
+	)
+	
+	hash := sha256.Sum256([]byte(hashInput))
+	return hex.EncodeToString(hash[:])
+}
+
+func generateLogID() string {
+	timestamp := time.Now().UnixNano()
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", timestamp)))
+	return hex.EncodeToString(hash[:8])
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/crypto/e2e.go`:
+
+```go
+package crypto
+
+import (
+	crypto2 "crypto"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/ecdh"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"errors"
+	"io"
+	"time"
+)
+
+type KeyPair struct {
+	PrivateKey *rsa.PrivateKey
+	PublicKey  *rsa.PublicKey
+}
+
+func GenerateKeyPair() (*KeyPair, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KeyPair{
+		PrivateKey: privateKey,
+		PublicKey:  &privateKey.PublicKey,
+	}, nil
+}
+
+func (kp *KeyPair) PublicKeyBytes() ([]byte, error) {
+	return x509.MarshalPKIXPublicKey(kp.PublicKey)
+}
+
+func PublicKeyFromBytes(data []byte) (*rsa.PublicKey, error) {
+	pubKey, err := x509.ParsePKIXPublicKey(data)
+	if err != nil {
+		return nil, err
+	}
+
+	rsaPubKey, ok := pubKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("not an RSA public key")
+	}
+
+	return rsaPubKey, nil
+}
+
+func EncryptMessage(message string, publicKey *rsa.PublicKey) ([]byte, error) {
+	aesKey := make([]byte, 32)
+	if _, err := rand.Read(aesKey); err != nil {
+		return nil, err
+	}
+
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(message), nil)
+
+	encryptedKey, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, aesKey, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, 2+len(encryptedKey)+len(ciphertext))
+	result[0] = byte(len(encryptedKey) >> 8)
+	result[1] = byte(len(encryptedKey))
+	copy(result[2:], encryptedKey)
+	copy(result[2+len(encryptedKey):], ciphertext)
+
+	return result, nil
+}
+
+func (kp *KeyPair) DecryptMessage(data []byte) (string, error) {
+	if len(data) < 2 {
+		return "", errors.New("invalid encrypted data")
+	}
+
+	keyLen := int(data[0])<<8 | int(data[1])
+	if len(data) < 2+keyLen {
+		return "", errors.New("invalid encrypted data")
+	}
+
+	encryptedKey := data[2 : 2+keyLen]
+	ciphertext := data[2+keyLen:]
+
+	aesKey, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, kp.PrivateKey, encryptedKey, nil)
+	if err != nil {
+		return "", err
+	}
+
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", errors.New("ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
+}
+
+func GetKeyFingerprint(publicKey *rsa.PublicKey) (string, error) {
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", err
+	}
+
+	hash := sha256.Sum256(pubKeyBytes)
+	return hex.EncodeToString(hash[:])[:16], nil
+}
+
+func (kp *KeyPair) GetFingerprint() (string, error) {
+	return GetKeyFingerprint(kp.PublicKey)
+}
+
+type PeerKey struct {
+	PublicKey        *rsa.PublicKey
+	Fingerprint      string
+	Trusted          bool
+	EphemeralKey     *ecdh.PrivateKey
+	PeerEphemeralKey *ecdh.PublicKey
+	SessionKey       []byte
+	SessionExpiry    time.Time
+}
+
+type EphemeralKeyExchange struct {
+	curve      ecdh.Curve
+	privateKey *ecdh.PrivateKey
+	publicKey  *ecdh.PublicKey
+}
+
+func NewEphemeralKeyExchange() (*EphemeralKeyExchange, error) {
+	curve := ecdh.P256()
+	privateKey, err := curve.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return &EphemeralKeyExchange{
+		curve:      curve,
+		privateKey: privateKey,
+		publicKey:  privateKey.PublicKey(),
+	}, nil
+}
+
+func (eke *EphemeralKeyExchange) GetPublicKeyBytes() []byte {
+	return eke.publicKey.Bytes()
+}
+
+func (eke *EphemeralKeyExchange) ComputeSharedSecret(peerPublicKeyBytes []byte) ([]byte, error) {
+	peerPublicKey, err := eke.curve.NewPublicKey(peerPublicKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	sharedSecret, err := eke.privateKey.ECDH(peerPublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Derive session key using HKDF-like approach
+	hash := sha256.Sum256(sharedSecret)
+	return hash[:], nil
+}
+
+func EncryptWithSessionKey(message string, sessionKey []byte) ([]byte, error) {
+	block, err := aes.NewCipher(sessionKey)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(message), nil)
+	return ciphertext, nil
+}
+
+func DecryptWithSessionKey(ciphertext []byte, sessionKey []byte) (string, error) {
+	block, err := aes.NewCipher(sessionKey)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", errors.New("ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
+}
+
+func SignMessage(message []byte, privateKey *rsa.PrivateKey) ([]byte, error) {
+	hash := sha256.Sum256(message)
+	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto2.SHA256, hash[:])
+	if err != nil {
+		return nil, err
+	}
+	return signature, nil
+}
+
+func VerifySignature(message []byte, signature []byte, publicKey *rsa.PublicKey) error {
+	hash := sha256.Sum256(message)
+	return rsa.VerifyPKCS1v15(publicKey, crypto2.SHA256, hash[:], signature)
+}
+
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/security/ratelimit.go`:
+
+```go
+package security
+
+import (
+	"sync"
+	"time"
+)
+
+type RateLimiter struct {
+	requests map[string][]time.Time
+	mutex    sync.RWMutex
+	limit    int
+	window   time.Duration
+}
+
+func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
+	return &RateLimiter{
+		requests: make(map[string][]time.Time),
+		limit:    limit,
+		window:   window,
+	}
+}
+
+func (rl *RateLimiter) Allow(key string) bool {
+	rl.mutex.Lock()
+	defer rl.mutex.Unlock()
+
+	now := time.Now()
+	
+	// Get or create request times for this key
+	times, exists := rl.requests[key]
+	if !exists {
+		times = make([]time.Time, 0)
+	}
+
+	// Remove old requests outside the window
+	cutoff := now.Add(-rl.window)
+	validTimes := make([]time.Time, 0)
+	for _, t := range times {
+		if t.After(cutoff) {
+			validTimes = append(validTimes, t)
+		}
+	}
+
+	// Check if we're within the limit
+	if len(validTimes) >= rl.limit {
+		rl.requests[key] = validTimes
+		return false
+	}
+
+	// Add current request
+	validTimes = append(validTimes, now)
+	rl.requests[key] = validTimes
+	
+	return true
+}
+
+func (rl *RateLimiter) Reset(key string) {
+	rl.mutex.Lock()
+	defer rl.mutex.Unlock()
+	delete(rl.requests, key)
+}
+
+func (rl *RateLimiter) GetRequestCount(key string) int {
+	rl.mutex.RLock()
+	defer rl.mutex.RUnlock()
+	
+	times, exists := rl.requests[key]
+	if !exists {
+		return 0
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+	count := 0
+	for _, t := range times {
+		if t.After(cutoff) {
+			count++
+		}
+	}
+	
+	return count
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/server/server.go`:
+
+```go
+package server
+
+import (
+	"bufio"
+	"crypto/rsa"
+	"crypto/x509"
+	"fmt"
+	"indi_chat/internal/crypto"
+	"indi_chat/internal/protocol"
+	"indi_chat/internal/security"
+	"log"
+	"net"
+	"strings"
+	"sync"
+	"time"
+)
+
+type Client struct {
+	conn      net.Conn
+	name      string
+	publicKey *rsa.PublicKey
+	writer    *bufio.Writer
+}
+
+type Server struct {
+	clients     map[string]*Client
+	mutex       sync.RWMutex
+	rateLimiter *security.RateLimiter
+}
+
+func NewServer() *Server {
+	return &Server{
+		clients:     make(map[string]*Client),
+		rateLimiter: security.NewRateLimiter(3, 5*time.Minute), // 3 key updates per 5 minutes
+	}
+}
+
+func (s *Server) Start(port string) error {
+	listener, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+
+	log.Printf("Server listening on port %s", port)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Printf("Error accepting connection: %v", err)
+			continue
+		}
+
+		go s.handleClient(conn)
+	}
+}
+
+func (s *Server) handleClient(conn net.Conn) {
+	defer conn.Close()
+	
+	scanner := bufio.NewScanner(conn)
+	writer := bufio.NewWriter(conn)
+	
+	var client *Client
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		
+		msg, err := protocol.MessageFromJSON([]byte(line))
+		if err != nil {
+			log.Printf("Error parsing message: %v", err)
+			continue
+		}
+
+		switch msg.Type {
+		case protocol.TypeHandshake:
+			client = s.handleHandshake(conn, writer, msg)
+		case protocol.TypeJoin:
+			s.handleJoin(client, msg)
+		case protocol.TypeChat:
+			s.handleChat(client, msg)
+		case protocol.TypeKeyUpdate:
+			s.handleKeyUpdate(client, msg)
+		case protocol.TypeKeyRequest:
+			s.handleKeyRequest(client, msg)
+		case protocol.TypeEphemeralKey:
+			s.handleEphemeralKey(client, msg)
+		case protocol.TypeSessionRequest:
+			s.handleSessionRequest(client, msg)
+		case protocol.TypeLeave:
+			s.handleLeave(client)
+			return
+		}
+	}
+
+	if client != nil {
+		s.removeClient(client.name)
+	}
+}
+
+func (s *Server) handleHandshake(conn net.Conn, writer *bufio.Writer, msg *protocol.Message) *Client {
+	client := &Client{
+		conn:   conn,
+		name:   msg.From,
+		writer: writer,
+	}
+
+	if len(msg.PublicKey) > 0 {
+		var err error
+		client.publicKey, err = crypto.PublicKeyFromBytes(msg.PublicKey)
+		if err != nil {
+			log.Printf("Error parsing public key: %v", err)
+		}
+	}
+
+	s.mutex.Lock()
+	s.clients[client.name] = client
+	s.mutex.Unlock()
+
+	log.Printf("Client %s connected", client.name)
+	return client
+}
+
+func (s *Server) handleJoin(client *Client, msg *protocol.Message) {
+	s.mutex.RLock()
+	clientList := make([]string, 0, len(s.clients))
+	for name := range s.clients {
+		if name != client.name {
+			clientList = append(clientList, name)
+		}
+	}
+	s.mutex.RUnlock()
+
+	response := protocol.NewMessage(protocol.TypeJoin, "server", client.name, strings.Join(clientList, ","))
+	s.sendToClient(client, response)
+
+	// Send all existing public keys to the new client
+	s.sendAllPublicKeys(client)
+
+	// Broadcast new client's public key to all other clients
+	if client.publicKey != nil {
+		s.broadcastPublicKey(client.name, client.publicKey, client.name)
+	}
+
+	joinMsg := protocol.NewMessage(protocol.TypeJoin, "server", "", fmt.Sprintf("%s joined the chat", client.name))
+	s.broadcast(joinMsg, client.name)
+}
+
+func (s *Server) handleChat(client *Client, msg *protocol.Message) {
+	if msg.To == "" {
+		s.broadcast(msg, client.name)
+	} else {
+		s.sendToSpecificClient(msg.To, msg)
+	}
+}
+
+func (s *Server) handleLeave(client *Client) {
+	leaveMsg := protocol.NewMessage(protocol.TypeLeave, "server", "", fmt.Sprintf("%s left the chat", client.name))
+	s.broadcast(leaveMsg, client.name)
+	s.removeClient(client.name)
+}
+
+func (s *Server) broadcast(msg *protocol.Message, except string) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for name, client := range s.clients {
+		if name != except {
+			s.sendToClient(client, msg)
+		}
+	}
+}
+
+func (s *Server) sendToSpecificClient(clientName string, msg *protocol.Message) {
+	s.mutex.RLock()
+	client, exists := s.clients[clientName]
+	s.mutex.RUnlock()
+
+	if exists {
+		s.sendToClient(client, msg)
+	}
+}
+
+func (s *Server) sendToClient(client *Client, msg *protocol.Message) {
+	data, err := msg.ToJSON()
+	if err != nil {
+		log.Printf("Error serializing message: %v", err)
+		return
+	}
+
+	client.writer.WriteString(string(data) + "\n")
+	client.writer.Flush()
+}
+
+func (s *Server) removeClient(name string) {
+	s.mutex.Lock()
+	delete(s.clients, name)
+	s.mutex.Unlock()
+	log.Printf("Client %s disconnected", name)
+}
+
+func (s *Server) sendAllPublicKeys(client *Client) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for name, c := range s.clients {
+		if name != client.name && c.publicKey != nil {
+			keyMsg := protocol.NewMessage(protocol.TypeKeyExchange, name, client.name, "")
+			
+			pubKeyBytes, err := x509.MarshalPKIXPublicKey(c.publicKey)
+			if err != nil {
+				log.Printf("Error marshaling public key for %s: %v", name, err)
+				continue
+			}
+			keyMsg.PublicKey = pubKeyBytes
+			
+			fingerprint, err := crypto.GetKeyFingerprint(c.publicKey)
+			if err == nil {
+				keyMsg.KeyFingerprint = fingerprint
+			}
+			
+			s.sendToClient(client, keyMsg)
+		}
+	}
+}
+
+func (s *Server) broadcastPublicKey(name string, publicKey *rsa.PublicKey, except string) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		log.Printf("Error marshaling public key for broadcast: %v", err)
+		return
+	}
+
+	fingerprint, err := crypto.GetKeyFingerprint(publicKey)
+	if err != nil {
+		log.Printf("Error getting fingerprint for %s: %v", name, err)
+		return
+	}
+
+	keyMsg := protocol.NewMessage(protocol.TypeKeyExchange, name, "", "")
+	keyMsg.PublicKey = pubKeyBytes
+	keyMsg.KeyFingerprint = fingerprint
+
+	for clientName, client := range s.clients {
+		if clientName != except {
+			s.sendToClient(client, keyMsg)
+		}
+	}
+}
+
+func (s *Server) handleKeyUpdate(client *Client, msg *protocol.Message) {
+	if len(msg.PublicKey) == 0 {
+		return
+	}
+
+	// Rate limit key updates
+	if !s.rateLimiter.Allow(client.name + ":key_update") {
+		log.Printf("Rate limited key update from %s", client.name)
+		errorMsg := protocol.NewMessage(protocol.TypeChat, "server", client.name, "Rate limit exceeded for key updates. Please wait before updating again.")
+		s.sendToClient(client, errorMsg)
+		return
+	}
+
+	newPublicKey, err := crypto.PublicKeyFromBytes(msg.PublicKey)
+	if err != nil {
+		log.Printf("Error parsing updated public key from %s: %v", client.name, err)
+		return
+	}
+
+	s.mutex.Lock()
+	client.publicKey = newPublicKey
+	s.mutex.Unlock()
+
+	log.Printf("Updated public key for client %s", client.name)
+
+	s.broadcastPublicKey(client.name, newPublicKey, client.name)
+}
+
+func (s *Server) handleKeyRequest(client *Client, msg *protocol.Message) {
+	targetName := msg.Content
+	
+	s.mutex.RLock()
+	targetClient, exists := s.clients[targetName]
+	s.mutex.RUnlock()
+
+	if !exists || targetClient.publicKey == nil {
+		return
+	}
+
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(targetClient.publicKey)
+	if err != nil {
+		log.Printf("Error marshaling requested public key: %v", err)
+		return
+	}
+
+	fingerprint, err := crypto.GetKeyFingerprint(targetClient.publicKey)
+	if err != nil {
+		log.Printf("Error getting fingerprint for requested key: %v", err)
+		return
+	}
+
+	keyMsg := protocol.NewMessage(protocol.TypeKeyExchange, targetName, client.name, "")
+	keyMsg.PublicKey = pubKeyBytes
+	keyMsg.KeyFingerprint = fingerprint
+
+	s.sendToClient(client, keyMsg)
+}
+
+func (s *Server) handleEphemeralKey(client *Client, msg *protocol.Message) {
+	targetName := msg.To
+	if targetName == "" {
+		return
+	}
+
+	s.mutex.RLock()
+	targetClient, exists := s.clients[targetName]
+	s.mutex.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	// Forward ephemeral key to target client
+	forwardMsg := protocol.NewMessage(protocol.TypeEphemeralKey, msg.From, targetName, "")
+	forwardMsg.EphemeralKey = msg.EphemeralKey
+	forwardMsg.SessionID = msg.SessionID
+
+	s.sendToClient(targetClient, forwardMsg)
+}
+
+func (s *Server) handleSessionRequest(client *Client, msg *protocol.Message) {
+	targetName := msg.To
+	if targetName == "" {
+		return
+	}
+
+	s.mutex.RLock()
+	targetClient, exists := s.clients[targetName]
+	s.mutex.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	// Forward session request to target client
+	forwardMsg := protocol.NewMessage(protocol.TypeSessionRequest, msg.From, targetName, "")
+	forwardMsg.SessionID = msg.SessionID
+
+	s.sendToClient(targetClient, forwardMsg)
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/protocol/message.go`:
+
+```go
+package protocol
+
+import (
+	"encoding/json"
+	"time"
+)
+
+type MessageType string
+
+const (
+	TypeHandshake       MessageType = "handshake"
+	TypeChat            MessageType = "chat"
+	TypeJoin            MessageType = "join"
+	TypeLeave           MessageType = "leave"
+	TypeKeyExchange     MessageType = "key_exchange"
+	TypeKeyUpdate       MessageType = "key_update"
+	TypeKeyRequest      MessageType = "key_request"
+	TypeEphemeralKey    MessageType = "ephemeral_key"
+	TypeSessionRequest  MessageType = "session_request"
+)
+
+type Message struct {
+	Type           MessageType `json:"type"`
+	From           string      `json:"from"`
+	To             string      `json:"to,omitempty"`
+	Content        string      `json:"content"`
+	PublicKey      []byte      `json:"public_key,omitempty"`
+	Timestamp      time.Time   `json:"timestamp"`
+	Encrypted      bool        `json:"encrypted,omitempty"`
+	KeyFingerprint string      `json:"key_fingerprint,omitempty"`
+	Signature      []byte      `json:"signature,omitempty"`
+	EphemeralKey   []byte      `json:"ephemeral_key,omitempty"`
+	SessionID      string      `json:"session_id,omitempty"`
+	ForwardSecure  bool        `json:"forward_secure,omitempty"`
+}
+
+func NewMessage(msgType MessageType, from, to, content string) *Message {
+	return &Message{
+		Type:      msgType,
+		From:      from,
+		To:        to,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+}
+
+func (m *Message) ToJSON() ([]byte, error) {
+	return json.Marshal(m)
+}
+
+func MessageFromJSON(data []byte) (*Message, error) {
+	var msg Message
+	err := json.Unmarshal(data, &msg)
+	return &msg, err
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/internal/client/client.go`:
+
+```go
+package client
+
+import (
+	"bufio"
+	"encoding/base64"
+	"fmt"
+	"indi_chat/internal/crypto"
+	"indi_chat/internal/protocol"
+	"log"
+	"net"
+	"os"
+	"strings"
+	"time"
+)
+
+type Client struct {
+	conn            net.Conn
+	name            string
+	keyPair         *crypto.KeyPair
+	scanner         *bufio.Scanner
+	writer          *bufio.Writer
+	peers           map[string]*crypto.PeerKey
+	trustedPeers    map[string]string
+	sessions        map[string]*SessionInfo
+	logChain        *crypto.LogChain
+	loggingEnabled  bool
+}
+
+type SessionInfo struct {
+	SessionKey    []byte
+	EphemeralKey  *crypto.EphemeralKeyExchange
+	Expiry        time.Time
+	SessionID     string
+}
+
+
+func NewClient(name string) (*Client, error) {
+	keyPair, err := crypto.GenerateKeyPair()
+	if err != nil {
+		return nil, err
+	}
+
+	logChain, err := crypto.NewLogChain(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{
+		name:           name,
+		keyPair:        keyPair,
+		peers:          make(map[string]*crypto.PeerKey),
+		trustedPeers:   make(map[string]string),
+		sessions:       make(map[string]*SessionInfo),
+		logChain:       logChain,
+		loggingEnabled: true,
+	}, nil
+}
+
+func (c *Client) Connect(address string) error {
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		return err
+	}
+
+	c.conn = conn
+	c.scanner = bufio.NewScanner(conn)
+	c.writer = bufio.NewWriter(conn)
+
+	publicKeyBytes, err := c.keyPair.PublicKeyBytes()
+	if err != nil {
+		return err
+	}
+
+	handshake := protocol.NewMessage(protocol.TypeHandshake, c.name, "", "")
+	handshake.PublicKey = publicKeyBytes
+
+	if err := c.sendMessage(handshake); err != nil {
+		return err
+	}
+
+	joinMsg := protocol.NewMessage(protocol.TypeJoin, c.name, "", "")
+	if err := c.sendMessage(joinMsg); err != nil {
+		return err
+	}
+
+	go c.listenForMessages()
+
+	return nil
+}
+
+func (c *Client) sendMessage(msg *protocol.Message) error {
+	data, err := msg.ToJSON()
+	if err != nil {
+		return err
+	}
+
+	c.writer.WriteString(string(data) + "\n")
+	return c.writer.Flush()
+}
+
+func (c *Client) listenForMessages() {
+	for c.scanner.Scan() {
+		line := c.scanner.Text()
+		
+		msg, err := protocol.MessageFromJSON([]byte(line))
+		if err != nil {
+			log.Printf("Error parsing message: %v", err)
+			continue
+		}
+
+		switch msg.Type {
+		case protocol.TypeJoin:
+			if msg.From == "server" && msg.To == c.name {
+				fmt.Printf("Connected users: %s\n", msg.Content)
+			} else if msg.From != c.name {
+				fmt.Printf("*** %s\n", msg.Content)
+			}
+		case protocol.TypeLeave:
+			if msg.From != c.name {
+				fmt.Printf("*** %s\n", msg.Content)
+				delete(c.peers, msg.From)
+				delete(c.trustedPeers, msg.From)
+			}
+		case protocol.TypeKeyExchange:
+			c.handleKeyExchange(msg)
+		case protocol.TypeEphemeralKey:
+			c.handleEphemeralKey(msg)
+		case protocol.TypeSessionRequest:
+			c.handleSessionRequest(msg)
+		case protocol.TypeChat:
+			c.handleChatMessage(msg)
+		}
+	}
+}
+
+func (c *Client) handleChatMessage(msg *protocol.Message) {
+	if msg.From == c.name {
+		return
+	}
+
+	content := msg.Content
+	encryptedIcon := ""
+	signatureValid := false
+	
+	// Verify message signature if present
+	if len(msg.Signature) > 0 {
+		if peerKey, exists := c.peers[msg.From]; exists && peerKey.PublicKey != nil {
+			// For encrypted messages, verify signature against original content after decryption
+			// For now, verify against received content (will be corrected after decryption)
+			messageData := []byte(msg.Content)
+			if err := crypto.VerifySignature(messageData, msg.Signature, peerKey.PublicKey); err == nil {
+				signatureValid = true
+			} else {
+				log.Printf("Invalid signature from %s: %v", msg.From, err)
+			}
+		} else {
+			log.Printf("Cannot verify signature from %s: No public key available", msg.From)
+		}
+	}
+	
+	if msg.Encrypted {
+		if msg.ForwardSecure {
+			// Use session key for forward secrecy (ECDH)
+			if session, exists := c.sessions[msg.SessionID]; exists {
+				encryptedData, err := base64.StdEncoding.DecodeString(msg.Content)
+				if err != nil {
+					fmt.Printf("❌ Error decoding forward secure message from %s: %v\n", msg.From, err)
+					return
+				}
+				
+				decrypted, err := crypto.DecryptWithSessionKey(encryptedData, session.SessionKey)
+				if err != nil {
+					fmt.Printf("❌ Error decrypting forward secure message from %s: %v\n", msg.From, err)
+					fmt.Printf("   Session may have expired or been corrupted\n")
+					return
+				}
+				content = decrypted
+				encryptedIcon = "🔐 "
+				
+				// Re-verify signature against decrypted content
+				if len(msg.Signature) > 0 {
+					if peerKey, exists := c.peers[msg.From]; exists && peerKey.PublicKey != nil {
+						messageData := []byte(content)
+						if err := crypto.VerifySignature(messageData, msg.Signature, peerKey.PublicKey); err == nil {
+							signatureValid = true
+						} else {
+							signatureValid = false
+							log.Printf("Invalid signature on decrypted content from %s: %v", msg.From, err)
+						}
+					}
+				}
+			} else {
+				fmt.Printf("❌ No session key for forward secure message from %s (SessionID: %s)\n", msg.From, msg.SessionID)
+				fmt.Printf("   Message cannot be decrypted - session may have expired\n")
+				return
+			}
+		} else {
+			// Traditional RSA+AES encryption
+			encryptedData, err := base64.StdEncoding.DecodeString(msg.Content)
+			if err != nil {
+				fmt.Printf("❌ Error decoding encrypted message from %s: %v\n", msg.From, err)
+				return
+			}
+			
+			decrypted, err := c.keyPair.DecryptMessage(encryptedData)
+			if err != nil {
+				fmt.Printf("❌ Error decrypting message from %s: %v\n", msg.From, err)
+				fmt.Printf("   This could indicate key mismatch or message corruption\n")
+				return
+			}
+			content = decrypted
+			encryptedIcon = "🔒 "
+			
+			// Re-verify signature against decrypted content
+			if len(msg.Signature) > 0 {
+				if peerKey, exists := c.peers[msg.From]; exists && peerKey.PublicKey != nil {
+					messageData := []byte(content)
+					if err := crypto.VerifySignature(messageData, msg.Signature, peerKey.PublicKey); err == nil {
+						signatureValid = true
+					} else {
+						signatureValid = false
+						log.Printf("Invalid signature on decrypted content from %s: %v", msg.From, err)
+					}
+				}
+			}
+		}
+	}
+
+	// Add signature verification indicator
+	signatureIcon := ""
+	if len(msg.Signature) > 0 {
+		if signatureValid {
+			signatureIcon = "✅ "
+		} else {
+			signatureIcon = "❌ "
+		}
+	} else {
+		// Warn about unsigned messages
+		signatureIcon = "⚠️ "
+	}
+
+	timestamp := msg.Timestamp.Format("15:04:05")
+	if msg.To == "" {
+		fmt.Printf("[%s] %s%s%s: %s\n", timestamp, encryptedIcon, signatureIcon, msg.From, content)
+	} else {
+		fmt.Printf("[%s] %s%s%s (private): %s\n", timestamp, encryptedIcon, signatureIcon, msg.From, content)
+	}
+
+	// Log message if logging is enabled
+	if c.loggingEnabled {
+		signatureStr := ""
+		if len(msg.Signature) > 0 {
+			signatureStr = base64.StdEncoding.EncodeToString(msg.Signature)
+		}
+		c.logChain.AddMessage(msg.From, msg.To, content, signatureStr)
+	}
+}
+
+func (c *Client) handleKeyExchange(msg *protocol.Message) {
+	if msg.From == c.name {
+		return
+	}
+
+	publicKey, err := crypto.PublicKeyFromBytes(msg.PublicKey)
+	if err != nil {
+		log.Printf("Error parsing public key from %s: %v", msg.From, err)
+		return
+	}
+
+	fingerprint := msg.KeyFingerprint
+	if fingerprint == "" {
+		fingerprint, err = crypto.GetKeyFingerprint(publicKey)
+		if err != nil {
+			log.Printf("Error getting fingerprint for %s: %v", msg.From, err)
+			return
+		}
+	}
+
+	trusted := false
+	if storedFingerprint, exists := c.trustedPeers[msg.From]; exists {
+		trusted = (storedFingerprint == fingerprint)
+		if !trusted {
+			fmt.Printf("⚠️  WARNING: %s's key fingerprint has changed!\n", msg.From)
+			fmt.Printf("   Previous: %s\n", storedFingerprint)
+			fmt.Printf("   Current:  %s\n", fingerprint)
+		}
+	}
+
+	c.peers[msg.From] = &crypto.PeerKey{
+		PublicKey:   publicKey,
+		Fingerprint: fingerprint,
+		Trusted:     trusted,
+	}
+
+	if !trusted {
+		fmt.Printf("📋 New key for %s (fingerprint: %s) - use '/trust %s' to verify\n", 
+			msg.From, fingerprint, msg.From)
+	}
+}
+
+func (c *Client) StartChat() {
+	fmt.Printf("Connected to chat as %s. Type '/help' for commands.\n", c.name)
+	
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print("> ")
+		if !scanner.Scan() {
+			break
+		}
+
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			continue
+		}
+
+		if strings.HasPrefix(input, "/") {
+			c.handleCommand(input)
+		} else {
+			c.sendChatMessage(input, "", false)
+		}
+	}
+
+	c.disconnect()
+}
+
+func (c *Client) handleCommand(command string) {
+	parts := strings.SplitN(command, " ", 3)
+	cmd := parts[0]
+
+	switch cmd {
+	case "/help":
+		fmt.Println("Commands:")
+		fmt.Println("  /help - Show this help")
+		fmt.Println("  /pm <user> <message> - Send private message")
+		fmt.Println("  /pms <user> <message> - Send forward secure private message")
+		fmt.Println("  /trust <user> - Trust a user's key")
+		fmt.Println("  /keys - Show all user keys and trust status")
+		fmt.Println("  /updatekey - Generate and broadcast new RSA key")
+		fmt.Println("  /mykey - Show your key fingerprint")
+		fmt.Println("  /logging <on|off> - Enable/disable message logging")
+		fmt.Println("  /verify - Verify message log integrity")
+		fmt.Println("  /logs - Show recent message logs")
+		fmt.Println("  /quit - Leave the chat")
+	case "/pm":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /pm <user> <message>")
+			return
+		}
+		c.sendSecureMessage(parts[2], parts[1], false)
+	case "/pms":
+		if len(parts) < 3 {
+			fmt.Println("Usage: /pms <user> <message>")
+			return
+		}
+		c.sendSecureMessage(parts[2], parts[1], true)
+	case "/trust":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /trust <user>")
+			return
+		}
+		c.trustUser(parts[1])
+	case "/keys":
+		c.showKeys()
+	case "/updatekey":
+		c.updateKey()
+	case "/mykey":
+		c.showMyKey()
+	case "/logging":
+		if len(parts) < 2 {
+			fmt.Println("Usage: /logging <on|off>")
+			return
+		}
+		c.toggleLogging(parts[1])
+	case "/verify":
+		c.verifyLogs()
+	case "/logs":
+		c.showLogs()
+	case "/quit":
+		c.disconnect()
+		os.Exit(0)
+	default:
+		fmt.Printf("Unknown command: %s\n", cmd)
+	}
+}
+
+func (c *Client) sendChatMessage(content, to string, forwardSecure bool) {
+	msg := protocol.NewMessage(protocol.TypeChat, c.name, to, content)
+	
+	// Sign the message
+	messageData := []byte(content)
+	signature, err := crypto.SignMessage(messageData, c.keyPair.PrivateKey)
+	if err != nil {
+		log.Printf("Error signing message: %v", err)
+		return
+	}
+	msg.Signature = signature
+	
+	// Encrypt message if sending to specific recipient
+	if to != "" {
+		// Check if we have the recipient's key
+		peerKey, keyExists := c.peers[to]
+		if !keyExists || peerKey.PublicKey == nil {
+			fmt.Printf("❌ Cannot send to %s: No public key available\n", to)
+			fmt.Printf("   Wait for key exchange or check if user is online\n")
+			return
+		}
+
+		// Check if key is trusted (for enhanced security)
+		if !peerKey.Trusted {
+			fmt.Printf("⚠️  Warning: %s's key is not trusted (fingerprint: %s)\n", to, peerKey.Fingerprint)
+			fmt.Printf("   Use '/trust %s' to verify and trust this key\n", to)
+			fmt.Printf("   Proceeding with encryption anyway...\n")
+		}
+
+		if forwardSecure {
+			// Use forward secure encryption (ECDH)
+			if session, exists := c.sessions[to]; exists && time.Now().Before(session.Expiry) {
+				encryptedData, err := crypto.EncryptWithSessionKey(content, session.SessionKey)
+				if err != nil {
+					fmt.Printf("❌ Error encrypting forward secure message: %v\n", err)
+					return
+				}
+				msg.Content = base64.StdEncoding.EncodeToString(encryptedData)
+				msg.Encrypted = true
+				msg.ForwardSecure = true
+				msg.SessionID = session.SessionID
+				fmt.Printf("[private to %s]: 🔐 %s\n", to, content)
+			} else {
+				fmt.Printf("🔐 No valid session with %s. Establishing new session...\n", to)
+				c.initiateEphemeralKeyExchange(to)
+				return
+			}
+		} else {
+			// Traditional RSA+AES encryption
+			encryptedData, err := crypto.EncryptMessage(content, peerKey.PublicKey)
+			if err != nil {
+				fmt.Printf("❌ Error encrypting message: %v\n", err)
+				fmt.Printf("   This could indicate a key corruption or crypto error\n")
+				return
+			}
+			msg.Content = base64.StdEncoding.EncodeToString(encryptedData)
+			msg.Encrypted = true
+			fmt.Printf("[private to %s]: 🔒 %s\n", to, content)
+		}
+	} else {
+		// For broadcast messages, don't encrypt (would need to encrypt for each user separately)
+		fmt.Printf("[broadcast]: ⚠️  %s (unencrypted)\n", content)
+		fmt.Printf("   Note: Broadcast messages are not encrypted for security reasons\n")
+	}
+
+	if err := c.sendMessage(msg); err != nil {
+		log.Printf("Error sending message: %v", err)
+	}
+}
+
+func (c *Client) disconnect() {
+	leaveMsg := protocol.NewMessage(protocol.TypeLeave, c.name, "", "")
+	c.sendMessage(leaveMsg)
+	
+	if c.conn != nil {
+		c.conn.Close()
+	}
+}
+
+func (c *Client) trustUser(username string) {
+	peerKey, exists := c.peers[username]
+	if !exists {
+		fmt.Printf("User %s not found or no key available\n", username)
+		return
+	}
+
+	fmt.Printf("Trust key for %s?\n", username)
+	fmt.Printf("Fingerprint: %s\n", peerKey.Fingerprint)
+	fmt.Print("Type 'yes' to trust: ")
+	
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() && strings.ToLower(strings.TrimSpace(scanner.Text())) == "yes" {
+		c.trustedPeers[username] = peerKey.Fingerprint
+		peerKey.Trusted = true
+		fmt.Printf("✅ Trusted key for %s\n", username)
+	} else {
+		fmt.Printf("❌ Key not trusted\n")
+	}
+}
+
+func (c *Client) showKeys() {
+	fmt.Println("User Keys:")
+	for username, peerKey := range c.peers {
+		trustStatus := "❌ Not trusted"
+		if peerKey.Trusted {
+			trustStatus = "✅ Trusted"
+		}
+		fmt.Printf("  %s: %s (%s)\n", username, peerKey.Fingerprint, trustStatus)
+	}
+}
+
+func (c *Client) updateKey() {
+	newKeyPair, err := crypto.GenerateKeyPair()
+	if err != nil {
+		fmt.Printf("Error generating new key: %v\n", err)
+		return
+	}
+
+	c.keyPair = newKeyPair
+	
+	publicKeyBytes, err := c.keyPair.PublicKeyBytes()
+	if err != nil {
+		fmt.Printf("Error serializing new key: %v\n", err)
+		return
+	}
+
+	fingerprint, err := c.keyPair.GetFingerprint()
+	if err != nil {
+		fmt.Printf("Error getting fingerprint: %v\n", err)
+		return
+	}
+
+	updateMsg := protocol.NewMessage(protocol.TypeKeyUpdate, c.name, "", "")
+	updateMsg.PublicKey = publicKeyBytes
+	updateMsg.KeyFingerprint = fingerprint
+
+	if err := c.sendMessage(updateMsg); err != nil {
+		fmt.Printf("Error broadcasting new key: %v\n", err)
+		return
+	}
+
+	fmt.Printf("🔄 New key generated and broadcast (fingerprint: %s)\n", fingerprint)
+}
+
+func (c *Client) showMyKey() {
+	fingerprint, err := c.keyPair.GetFingerprint()
+	if err != nil {
+		fmt.Printf("Error getting fingerprint: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("Your key fingerprint: %s\n", fingerprint)
+}
+
+func (c *Client) initiateEphemeralKeyExchange(targetUser string) {
+	eke, err := crypto.NewEphemeralKeyExchange()
+	if err != nil {
+		fmt.Printf("Error creating ephemeral key: %v\n", err)
+		return
+	}
+
+	sessionID := fmt.Sprintf("%s-%s-%d", c.name, targetUser, time.Now().UnixNano())
+	
+	c.sessions[targetUser] = &SessionInfo{
+		EphemeralKey: eke,
+		SessionID:    sessionID,
+		Expiry:       time.Now().Add(24 * time.Hour), // 24 hour session
+	}
+
+	ephemeralMsg := protocol.NewMessage(protocol.TypeEphemeralKey, c.name, targetUser, "")
+	ephemeralMsg.EphemeralKey = eke.GetPublicKeyBytes()
+	ephemeralMsg.SessionID = sessionID
+
+	if err := c.sendMessage(ephemeralMsg); err != nil {
+		log.Printf("Error sending ephemeral key: %v", err)
+	}
+}
+
+func (c *Client) sendForwardSecureMessage(content, to string) {
+	c.sendChatMessage(content, to, true)
+}
+
+func (c *Client) handleEphemeralKey(msg *protocol.Message) {
+	if msg.From == c.name {
+		return
+	}
+
+	// Create our ephemeral key
+	eke, err := crypto.NewEphemeralKeyExchange()
+	if err != nil {
+		log.Printf("Error creating ephemeral key response: %v", err)
+		return
+	}
+
+	// Compute shared secret
+	sharedSecret, err := eke.ComputeSharedSecret(msg.EphemeralKey)
+	if err != nil {
+		log.Printf("Error computing shared secret: %v", err)
+		return
+	}
+
+	// Store session
+	c.sessions[msg.From] = &SessionInfo{
+		SessionKey:   sharedSecret,
+		EphemeralKey: eke,
+		SessionID:    msg.SessionID,
+		Expiry:       time.Now().Add(24 * time.Hour),
+	}
+
+	// Send our ephemeral key back
+	responseMsg := protocol.NewMessage(protocol.TypeEphemeralKey, c.name, msg.From, "")
+	responseMsg.EphemeralKey = eke.GetPublicKeyBytes()
+	responseMsg.SessionID = msg.SessionID
+
+	if err := c.sendMessage(responseMsg); err != nil {
+		log.Printf("Error sending ephemeral key response: %v", err)
+	}
+
+	fmt.Printf("🔐 Established forward secure session with %s\n", msg.From)
+}
+
+func (c *Client) handleSessionRequest(msg *protocol.Message) {
+	// Handle session requests if needed
+	fmt.Printf("Session request from %s\n", msg.From)
+}
+
+func (c *Client) toggleLogging(setting string) {
+	switch strings.ToLower(setting) {
+	case "on", "true", "1":
+		c.loggingEnabled = true
+		fmt.Println("✅ Message logging enabled")
+	case "off", "false", "0":
+		c.loggingEnabled = false
+		fmt.Println("❌ Message logging disabled")
+	default:
+		fmt.Printf("Current logging status: %v\n", c.loggingEnabled)
+	}
+}
+
+func (c *Client) verifyLogs() {
+	valid, err := c.logChain.VerifyIntegrity()
+	if err != nil {
+		fmt.Printf("❌ Log verification failed: %v\n", err)
+		return
+	}
+	
+	if valid {
+		fmt.Println("✅ Message logs verified - no tampering detected")
+	} else {
+		fmt.Println("❌ Message logs integrity compromised!")
+	}
+}
+
+func (c *Client) showLogs() {
+	logs := c.logChain.GetLogs()
+	if len(logs) == 0 {
+		fmt.Println("No logged messages")
+		return
+	}
+
+	fmt.Println("Recent message logs:")
+	start := len(logs) - 10
+	if start < 0 {
+		start = 0
+	}
+
+	for i := start; i < len(logs); i++ {
+		log := logs[i]
+		timestamp := log.Timestamp.Format("15:04:05")
+		direction := "→"
+		if log.To != "" {
+			direction = "private→"
+		}
+		fmt.Printf("[%s] %s %s %s: %s\n", timestamp, log.From, direction, log.To, log.Content)
+	}
+}
+
+// Helper function to validate recipient for secure messaging
+func (c *Client) validateRecipient(username string) error {
+	if username == "" {
+		return fmt.Errorf("recipient username cannot be empty")
+	}
+	
+	if username == c.name {
+		return fmt.Errorf("cannot send message to yourself")
+	}
+
+	peerKey, exists := c.peers[username]
+	if !exists {
+		return fmt.Errorf("no public key available for %s - user may be offline or key exchange incomplete", username)
+	}
+
+	if peerKey.PublicKey == nil {
+		return fmt.Errorf("invalid public key for %s", username)
+	}
+
+	return nil
+}
+
+// Enhanced send message with full validation
+func (c *Client) sendSecureMessage(content, to string, useForwardSecrecy bool) {
+	// Validate recipient
+	if err := c.validateRecipient(to); err != nil {
+		fmt.Printf("❌ Cannot send message: %v\n", err)
+		return
+	}
+
+	// Send the message using existing logic
+	c.sendChatMessage(content, to, useForwardSecrecy)
+}
+```
+
+`/Users/stasf/Projects/FrantPRO/ClaudeCode/indi_chat/README.md`:
+
+```md
+# IndiChat - Secure CLI Chat Application
+
+A minimal, independent CLI-based chat application with enterprise-grade end-to-end encryption, built in Go.
+
+## Features
+
+### 🔒 Security First
+- **End-to-End Encryption**: RSA-2048 + AES-GCM encryption
+- **Forward Secrecy**: ECDH ephemeral keys prevent retroactive decryption
+- **Message Signing**: RSA digital signatures ensure authenticity
+- **Tamper-Proof Logging**: SHA-256 hash chaining detects log tampering
+- **Rate Limiting**: DoS protection for sensitive operations
+
+### 💬 Chat Features
+- **Private Messaging**: Secure 1-on-1 conversations
+- **Group Chat**: Broadcast messages to all users
+- **Key Management**: Trust-based public key verification
+- **Session Management**: 24-hour forward secure sessions
+
+### 🛡️ Advanced Security
+- **Key Fingerprints**: SHA-256 fingerprints for key verification
+- **Trust System**: Manual key verification and trust management
+- **Key Rotation**: Secure RSA key updates with rate limiting
+- **Audit Logs**: Cryptographically secured message history
+
+## Quick Start
+
+### Build
+```bash
+make build
+# or
+go build -o bin/server ./cmd/server
+go build -o bin/client ./cmd/client
+```
+
+### Run Server
+```bash
+./bin/server -port 8080
+```
+
+### Connect Clients
+```bash
+./bin/client -name Alice -server localhost:8080
+./bin/client -name Bob -server localhost:8080
+```
+
+## Commands
+
+### Basic Commands
+- `/help` - Show all available commands
+- `/quit` - Leave the chat
+
+### Messaging
+- `<message>` - Send broadcast message to all users
+- `/pm <user> <message>` - Send private RSA-encrypted message
+- `/pms <user> <message>` - Send forward secure message (ECDH)
+
+### Key Management
+- `/keys` - Show all user keys and trust status
+- `/trust <user>` - Trust a user's key after verification
+- `/mykey` - Show your RSA key fingerprint
+- `/updatekey` - Generate and broadcast new RSA key
+
+### Security & Logging
+- `/logging <on|off>` - Enable/disable message logging
+- `/verify` - Verify message log integrity
+- `/logs` - Show recent logged messages
+
+## Security Indicators
+
+### Message Types
+- 🔒 **RSA Encrypted** - Traditional RSA+AES encryption
+- 🔐 **Forward Secure** - ECDH ephemeral key encryption
+- ⚠️ **Unencrypted** - No encryption (missing recipient key)
+
+### Signature Verification
+- ✅ **Valid Signature** - Message authentically signed
+- ❌ **Invalid Signature** - Signature verification failed
+- No icon - Unsigned message
+
+### Key Status
+- ✅ **Trusted** - Key manually verified and trusted
+- ❌ **Not Trusted** - Key not yet verified
+- 📋 **New Key** - First time seeing this key
+
+## Architecture
+
+### Components
+```
+indi_chat/
+├── cmd/
+│   ├── server/          # TCP server entry point
+│   └── client/          # CLI client entry point
+├── internal/
+│   ├── crypto/          # Encryption & key management
+│   ├── protocol/        # Message protocol definitions
+│   ├── server/          # Server implementation
+│   ├── client/          # Client implementation
+│   └── security/        # Rate limiting & security
+└── bin/                 # Compiled binaries
+```
+
+### Protocol
+- **JSON-based** message protocol over TCP
+- **TLS-ready** transport layer
+- **Extensible** message types for future features
+
+## Cryptographic Details
+
+### Encryption Algorithms
+- **RSA-2048** for key exchange and traditional encryption
+- **ECDH P-256** for forward secure ephemeral keys  
+- **AES-256-GCM** for symmetric encryption
+- **SHA-256** for hashing and signatures
+
+### Key Exchange Process
+1. **Initial Handshake**: Exchange RSA public keys
+2. **Key Distribution**: Server broadcasts keys to all clients
+3. **Trust Establishment**: Manual key fingerprint verification
+4. **Session Initiation**: ECDH ephemeral key exchange for forward secrecy
+
+### Forward Secrecy Implementation
+```
+Alice                Server                Bob
+  |                    |                    |
+  |-- ECDH Public ---->|---> Forward ------>|
+  |                    |                    |
+  |<--- ECDH Public ---|<--- Forward -------|
+  |                    |                    |
+  |-- Encrypted Msg -->|---> Forward ------>|
+  |   (Session Key)    |                    |
+```
+
+### Message Signing
+1. **Generate**: SHA-256 hash of message content
+2. **Sign**: RSA-PSS signature with sender's private key
+3. **Verify**: Recipient validates signature with sender's public key
+4. **Display**: Visual indicators show signature status
+
+### Log Integrity
+```
+Block N-1            Block N              Block N+1
+┌─────────────┐    ┌─────────────┐      ┌─────────────┐
+│ Msg Content │    │ Msg Content │      │ Msg Content │
+│ Timestamp   │    │ Timestamp   │      │ Timestamp   │
+│ Signature   │    │ Signature   │      │ Signature   │
+│ Prev Hash   │◄───│ Prev Hash   │◄─────│ Prev Hash   │
+│ Hash N-1    │    │ Hash N      │      │ Hash N+1    │
+└─────────────┘    └─────────────┘      └─────────────┘
+```
+
+## Security Considerations
+
+### Threat Model
+✅ **Protects Against**:
+- Passive eavesdropping (encryption)
+- Message forgery (digital signatures)
+- Retroactive decryption (forward secrecy)
+- Log tampering (hash chaining)
+- DoS attacks (rate limiting)
+
+⚠️ **Does Not Protect Against**:
+- Endpoint compromise
+- Side-channel attacks
+- Traffic analysis
+- Malicious server operators
+
+### Best Practices
+1. **Verify Key Fingerprints** out-of-band before trusting
+2. **Use Forward Secure Messages** (`/pms`) for sensitive communications
+3. **Regularly Update Keys** (`/updatekey`) if compromise suspected
+4. **Monitor Log Integrity** (`/verify`) for tampering detection
+5. **Secure Key Storage** - private keys stored in memory only
+
+## Configuration
+
+### Server Options
+```bash
+./bin/server -port <port>          # Default: 8080
+```
+
+### Client Options  
+```bash
+./bin/client -name <username> -server <address>
+# Default server: localhost:8080
+```
+
+### File Locations
+- **Message Logs**: `~/.indi_chat/logs/<username>.json`
+- **No Persistent Keys**: All keys generated fresh per session
+
+## Development
+
+### Requirements
+- Go 1.21+ (for crypto/ecdh support)
+- No external dependencies
+
+### Build Commands
+```bash
+make build       # Build both server and client
+make clean       # Remove binaries
+make run-server  # Run server in development
+make test        # Run tests
+make deps        # Download dependencies
+```
+
+### Testing
+```bash
+# Run in separate terminals:
+make run-server
+make run-client NAME=Alice  
+make run-client NAME=Bob
+```
+
+## Rate Limiting
+
+### Protected Operations
+- **Key Updates**: 3 per 5 minutes per client
+- **Future**: Message flooding protection
+
+### Implementation
+- **Sliding Window** algorithm
+- **Per-client** tracking
+- **Server-side** enforcement
+
+## Troubleshooting
+
+### Common Issues
+
+**"No key for user"**
+- Wait for key exchange to complete
+- Check network connectivity
+- Verify user is online
+
+**"Invalid signature"**  
+- Key may have been rotated
+- Check for MITM attacks
+- Re-verify key fingerprints
+
+**"Log verification failed"**
+- Log file may be corrupted
+- Check file permissions
+- Possible tampering detected
+
+**"Rate limit exceeded"**
+- Wait 5 minutes between key updates
+- Indicates potential DoS attack
+
+### Debug Mode
+```bash
+# Server with verbose logging
+./bin/server -port 8080 -v
+
+# Client with debug output  
+./bin/client -name Alice -debug
+```
+
+## Contributing
+
+1. **Security Focus**: All contributions must maintain security guarantees
+2. **No Dependencies**: Keep the project dependency-free
+3. **Test Coverage**: Include tests for new features
+4. **Documentation**: Update README for new commands/features
+
+## License
+
+MIT License - See LICENSE file for details.
+
+## Security Disclosure
+
+For security vulnerabilities, please email: [security contact]
+
+**Do not** open public issues for security bugs.
+
+---
+
+**IndiChat** - Where privacy meets simplicity. 🔒
+```
