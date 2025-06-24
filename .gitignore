@@ -37,3 +37,6 @@ Thumbs.db
 
 # Go module cache
 go.sum
+
+# Claude settings (keep local)
+.claude/settings.local.json
